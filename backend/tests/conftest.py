@@ -11,6 +11,20 @@ import pytest
 os.environ.setdefault("SECRET_KEY", "test-secret-key")
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_db(tmp_path_factory):
+    """C22：把整个测试会话的 SQLite 重定向到临时目录并跑迁移，
+    本地 pytest 绝不再写 data/conversations.db（usage_events 曾被污染 110 条造假失败记录，
+    见 solved.md C22 条目）。需要独立小库做精确断言的测试照旧自己
+    monkeypatch database.DB_FILE——测试体里的 monkeypatch 在本 fixture setup 之后执行，照常生效。"""
+    import core.database as database
+
+    database.DB_FILE = tmp_path_factory.mktemp("pytest-db") / "conversations.db"
+    from core.migrations import run_migrations
+
+    run_migrations()
+
+
 @pytest.fixture(autouse=True)
 def _billing_mode_off(monkeypatch):
     """测试默认关闭计费门控：老的用例不应被“积分不足”拒绝；
