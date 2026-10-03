@@ -9,6 +9,7 @@ from typing import Any
 
 from core import config
 from repositories import job_repo
+from services import billing_service
 from workers.dispatcher import JOB_HANDLERS, JobCancelled
 
 logger = logging.getLogger("job_worker")
@@ -118,6 +119,8 @@ class JobWorker:
             )
         logger.info("后台 Worker 启动", extra={"evt": "worker_started", "worker_id": self.worker_id})
         last_recovery = time.monotonic()
+        # I11：计费预占是冻结的真金白银，清扫不能等「正好有人看余额」——进程崩溃后超时预占必须自动回收。
+        last_billing_sweep = 0.0  # 启动即先扫一次，吞掉上次崩溃留下的尾巴
         while not self.stop_requested:
             if time.monotonic() - last_recovery >= config.JOB_LEASE_SECONDS:
                 try:
@@ -127,6 +130,22 @@ class JobWorker:
                         "Worker 恢复任务时数据库暂不可用", extra={"evt": "worker_recovery_db_error"}
                     )
                 last_recovery = time.monotonic()
+            if time.monotonic() - last_billing_sweep >= config.BILLING_SWEEP_INTERVAL_SECONDS:
+                try:
+                    swept = billing_service.sweep_stale_reservations(
+                        config.BILLING_RESERVATION_STALE_SECONDS
+                    )
+                    if swept:
+                        logger.warning(
+                            "回收超时计费预占",
+                            extra={"evt": "billing_sweep_reclaimed", "count": swept},
+                        )
+                except sqlite3.OperationalError:
+                    # 与 API 同时启动时迁移可能没完，等下一轮；预占不会丢，只是晚回收一个周期。
+                    logger.warning(
+                        "Worker 清扫计费预占时数据库暂不可用", extra={"evt": "billing_sweep_db_error"}
+                    )
+                last_billing_sweep = time.monotonic()
             try:
                 has_job = self.run_once()
             except sqlite3.OperationalError:

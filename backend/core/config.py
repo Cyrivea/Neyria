@@ -108,8 +108,12 @@ BILLING_TEST_GRANT_PERIOD_DAYS = int(os.getenv("BILLING_TEST_GRANT_PERIOD_DAYS",
 BILLING_LYRICS_RESERVE_CREDITS = os.getenv("BILLING_LYRICS_RESERVE_CREDITS", "3").strip()
 BILLING_IMAGE_RESERVE_CREDITS = os.getenv("BILLING_IMAGE_RESERVE_CREDITS", "2").strip()
 BILLING_VIDEO_RESERVE_CREDITS = os.getenv("BILLING_VIDEO_RESERVE_CREDITS", "5").strip()
-# 预占超过这个秒数未被结算/释放视为提交方崩溃，由 sweep 恢复原占用额度
-BILLING_RESERVATION_STALE_SECONDS = int(os.getenv("BILLING_RESERVATION_STALE_SECONDS", "600"))
+# 预占超过这个秒数未被结算/释放视为提交方崩溃，由 sweep 恢复原占用额度。
+# 下限约束：必须大于最慢能力的真实耗时。Wan2.2 视频实测单次 3m29s，Provider 排队另算，
+# 取 900s 留约 4 倍余量（Spec v1 的 300s 已被差决策记录推翻——会误杀在途视频）。
+BILLING_RESERVATION_STALE_SECONDS = int(os.getenv("BILLING_RESERVATION_STALE_SECONDS", "900"))
+# Worker 周期性调用 sweep_stale_reservations 的间隔；另外 get_balance 还有请求级的惰性清理双保险。
+BILLING_SWEEP_INTERVAL_SECONDS = int(os.getenv("BILLING_SWEEP_INTERVAL_SECONDS", "60"))
 
 # ===== 工具执行超时（秒）：超过即中断并回给模型一条明确的超时结果 =====
 TOOL_TIMEOUT_SECONDS = int(os.getenv("TOOL_TIMEOUT_SECONDS", "120"))

@@ -23,6 +23,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import ROUND_CEILING, ROUND_HALF_EVEN, Decimal
 from typing import Any
 
+from core import config
 from core.database import db_connection
 from repositories import billing_repo
 
@@ -37,6 +38,10 @@ class BillingError(Exception):
 
 class InsufficientCreditsError(BillingError):
     """套餐 + 预付不足以覆盖预占。调用方应在接触上游 Provider 之前拒绝。"""
+
+
+class DuplicateReservationError(BillingError):
+    """同一幂等键重复预占：调用方必须视为重复提交，不得再执行一次生成。"""
 
 
 class ReservationNotFoundError(BillingError):
@@ -294,8 +299,18 @@ def expire_subscriptions(now: str | None = None) -> int:
 
 
 def get_balance(user_id: int, *, now: str | None = None) -> dict[str, Any]:
-    """读取用户积分视图：先顺手完成到期清零，再返回两桶可用/预占。"""
+    """读取用户积分视图：先顺手完成到期清零/超时预占回收，再返回两桶可用/预占。
+
+    惰性 sweep 是 I11 的副保险：主保险是 Worker 每 BILLING_SWEEP_INTERVAL_SECONDS 主动扫；
+    worker 没跑（比如只起了 uvicorn 的环境）时，用户打开计费面板也能顺带回收僵尸预占。
+    两处并发碰同一笔预占时 release 内 BEGIN IMMEDIATE 串行 + 非 open 静默返回，天然幂等。
+    """
     expire_subscriptions(now)
+    try:
+        sweep_stale_reservations(config.BILLING_RESERVATION_STALE_SECONDS)
+    except Exception as exc:
+        # 读余额不能被打胜 90% 的清理任务拒绝；失败只记日志，下一轮 worker 轮询会补上
+        logger.warning("余额查询顺带清扫预占失败：%s", exc, extra={"evt": "billing_lazy_sweep_failed"})
     with db_connection() as conn:
         conn.row_factory = sqlite3.Row
         account = billing_repo.get_account(conn, user_id)
@@ -334,7 +349,9 @@ def _reserve_split(account: dict[str, Any], amount_micro: int) -> tuple[int, int
 def reserve(user_id: int, reference_id: str, estimated: Decimal) -> int:
     """调用上游 Provider 前的原子预占：额度不够立即拒绝，绝不欠费。
 
-    返回预占 id；参考键冲突时视为同一笔，直接返回既有预占（幂等）。
+    同一 reference_id 重复预占 → DuplicateReservationError：调用方必须保证引用键唯一，
+    冲突意味着同一次生成被重复提交（双击/重试），此时静默执行会让平台为同一用户多付一次
+    Provider 成本（用户只被扣一次但实付了两次）——重复提交必须显式拒绝而非吞掉。
     并发安全靠三重防线：BEGIN IMMEDIATE 写串行化 + 账户 CHECK 非负约束 +
     流水唯一索引；线程打爆也不会出现负额或双扣。
     """
@@ -345,7 +362,7 @@ def reserve(user_id: int, reference_id: str, estimated: Decimal) -> int:
         billing_repo.ensure_account(conn, user_id, now)
         existing = billing_repo.get_reservation_by_reference(conn, reference_id)
         if existing is not None:
-            return int(existing["id"])  # 幂等：同 reference 重试视为同一笔
+            raise DuplicateReservationError(f"幂等键 {reference_id} 已存在预占，拒绝重复提交")
         account = billing_repo.get_account(conn, user_id)
         assert account is not None
         from_plan, from_prepaid = _reserve_split(account, amount_micro)
@@ -400,10 +417,26 @@ def settle(
         conn.execute("BEGIN IMMEDIATE")
         reservation = billing_repo.get_reservation_by_reference(conn, reference_id)
         if reservation is None or reservation["status"] != "open":
+            if reservation is None:
+                raise ReservationNotFoundError(f"幂等键 {reference_id} 未找到任何预占记录")
+            if reservation["status"] == "released":
+                # I11b 竞态兜底：预占已被 sweep/失败路径退回，生成却成功了——
+                # 平台已替用户垫付 Provider 成本，必须从可用余额直扣，不许吃暗亏。
+                return _settle_after_release(
+                    conn,
+                    reservation,
+                    model_id,
+                    prompt_tokens,
+                    completion_tokens,
+                    cached_tokens=cached_tokens,
+                    reasoning_tokens=reasoning_tokens,
+                    usage_event_id=usage_event_id,
+                    now=now,
+                )
+            if reservation["status"] != "settled":
+                raise ReservationNotFoundError(f"幂等键 {reference_id} 未找到已结算记录")
             # 幂等重放：从流水回推上次的实收金额。
             # 记账公式：billed = 预占总额 - 退回之和 - 补扣之和（补扣为负数行）
-            if reservation is None or reservation["status"] != "settled":
-                raise ReservationNotFoundError(f"幂等键 {reference_id} 未找到已结算记录")
             row = conn.execute(
                 """
                 SELECT
@@ -517,6 +550,81 @@ def settle(
             billing_repo.link_usage_event_billing(
                 conn, usage_event_id, int(price["id"]), billed_micro
             )
+    return billed
+
+
+def _settle_after_release(
+    conn: sqlite3.Connection,
+    reservation: dict[str, Any],
+    model_id: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    *,
+    cached_tokens: int,
+    reasoning_tokens: int,
+    usage_event_id: int | None,
+    now: str,
+) -> Decimal:
+    """I11b 竞态兜底：预占被 sweep/release 退回后，迟到的 settled 请求改从可用余额直扣。
+
+    余额不够的部分走统一 `billing_undercharged` 告警，账户不被扣负；
+    顺手把 reservation 状态纠正为 settled，保持历史诚实（reservation 不是 ledger，允许改状态）。
+    """
+    user_id = int(reservation["user_id"])
+    billing_repo.ensure_account(conn, user_id, now)
+    account = billing_repo.get_account(conn, user_id)
+    assert account is not None
+    price = billing_repo.current_price_version(conn, model_id, now)
+    if price is None:
+        raise PriceNotConfiguredError(f"模型 {model_id} 在 {now} 无生效价格版本")
+    billed = compute_billed_credits(
+        price,
+        prompt_tokens,
+        completion_tokens,
+        cached_tokens=cached_tokens,
+        reasoning_tokens=reasoning_tokens,
+    )
+    billed_micro = credits_to_micro(billed)
+    from_plan = min(account["plan_available_micro"], billed_micro)
+    from_prepaid = min(account["prepaid_available_micro"], billed_micro - from_plan)
+    undercharged_micro = billed_micro - from_plan - from_prepaid
+    charged_micro = from_plan + from_prepaid
+    reference_id = str(reservation["reference_id"])
+    billing_repo.update_account(
+        conn,
+        user_id,
+        plan_available=account["plan_available_micro"] - from_plan,
+        plan_reserved=account["plan_reserved_micro"],
+        prepaid_available=account["prepaid_available_micro"] - from_prepaid,
+        prepaid_reserved=account["prepaid_reserved_micro"],
+        now=now,
+    )
+    billing_repo.close_reservation(conn, int(reservation["id"]), "settled", now)
+    settled_account = billing_repo.get_account(conn, user_id)
+    assert settled_account is not None
+    billing_repo.insert_ledger(
+        conn,
+        user_id,
+        -charged_micro,
+        settled_account["plan_available_micro"],
+        settled_account["prepaid_available_micro"],
+        "usage_settlement",
+        reference_id,
+        f"超时回收后兜底直扣 {micro_to_credits(charged_micro)} 积分（{model_id}，价版 {price['id']}）",
+        now,
+    )
+    logger.warning(
+        "结算晚于预占回收，已从可用余额兜底直扣",
+        extra={
+            "evt": "billing_settle_after_release",
+            "user_id": user_id,
+            "reference_id": reference_id,
+            "charged_micro": charged_micro,
+            "undercharged_micro": undercharged_micro,
+        },
+    )
+    if usage_event_id is not None:
+        billing_repo.link_usage_event_billing(conn, usage_event_id, int(price["id"]), billed_micro)
     return billed
 
 

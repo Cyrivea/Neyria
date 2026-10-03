@@ -250,6 +250,7 @@ async def run_capability(
     inputs: dict[str, Any],
     *,
     context: CapabilityContext,
+    idempotency_key: str | None = None,
 ) -> CapabilityResult:
     """执行一个受控生产能力，Provider 细节不向调用入口泄露。
 
@@ -286,7 +287,9 @@ async def run_capability(
     billing_mode = config.BILLING_MODE
     reservation_ref: str | None = None
     if billing_mode in ("track", "enforce"):
-        reservation_ref = f"cap:{capability_id}:{context.user_id}:{uuid.uuid4().hex}"
+        # I12：独立入口的客户端幂等键优先——双击/断网重试携带同一 key，reservation 唯一索引兜底，
+        # 生成绝不会执行第二次。assistant/workflow 路径不传 key，每次工具调用都是真·新生成。
+        reservation_ref = f"cap:{capability_id}:{context.user_id}:{idempotency_key or uuid.uuid4().hex}"
         try:
             await asyncio.to_thread(
                 billing_service.reserve,
@@ -294,6 +297,9 @@ async def run_capability(
                 reservation_ref,
                 entry.billing_estimate(),
             )
+        except billing_service.DuplicateReservationError:
+            # 重复提交必须传到路由层换 409——吞掉或办好都会让平台替用户多付出一次 Provider 成本
+            raise
         except billing_service.InsufficientCreditsError as exc:
             if billing_mode == "enforce":
                 logger.warning(

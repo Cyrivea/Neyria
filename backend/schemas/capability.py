@@ -50,6 +50,9 @@ class CapabilityRunRequest(BaseModel):
     capability_id: Literal["lyrics.generate", "image.generate", "video.generate"]
     project_id: int | None = None
     inputs: LyricsGenerateInput | ImageGenerateInput | VideoGenerateInput
+    # I12 客户端幂等键：一次"用户点击"生成一个 UUID；网络重试复用同一 key，
+    # 后端 reservation 唯一索引防重复扣费/重复生成（Spec §3.5 第一层）
+    idempotency_key: str | None = Field(None, min_length=8, max_length=128)
 
 
 class CapabilityResult(BaseModel):

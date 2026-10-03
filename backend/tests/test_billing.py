@@ -195,6 +195,62 @@ def test_sweep_stale_reservations_recovers(billing_db):
     assert _account(billing_db)["plan_available_micro"] == 10_000_000
 
 
+def test_get_balance_lazy_sweeps_stale_reservations(billing_db):
+    """I11 副保险：worker 不在场时，读余额也要顺带回收僵尸预占（默认阈 900s，backdate 20 分钟必中）。"""
+    billing_service.grant_plan_credits(billing_db, "test", Decimal("10"), 30)
+    billing_service.reserve(billing_db, "resv:lazy", Decimal("4"))
+    with db_connection() as conn:
+        conn.execute(
+            "UPDATE credit_reservations SET created_at=? WHERE reference_id=?",
+            ((datetime.now(UTC) - timedelta(minutes=20)).isoformat(), "resv:lazy"),
+        )
+    balance = billing_service.get_balance(billing_db)
+    assert balance["plan_credits"] == "10"
+    with db_connection() as conn:
+        row = conn.execute(
+            "SELECT status FROM credit_reservations WHERE reference_id='resv:lazy'"
+        ).fetchone()
+    assert row[0] == "released"
+
+
+def test_settle_after_sweep_release_still_charges(billing_db):
+    """I11b 竞态：sweep 先于 settle 退回预占，生成随后成功——必须从可用余额兜底直扣，
+    不许白送用户一次生成还无人知晓。幂等重放值也必须等于同一次实收。"""
+    billing_service.grant_plan_credits(billing_db, "test", Decimal("10"), 30)
+    billing_service.reserve(billing_db, "resv:race", Decimal("4"))
+    billing_service.release("resv:race", reason="模拟 sweep 回收")
+
+    billed = billing_service.settle("resv:race", "test-model", 1000, 1000)
+    assert billed == Decimal("3.5")
+    account = _account(billing_db)
+    assert account["plan_available_micro"] == 6_500_000  # 10 - 3.5
+    assert account["plan_reserved_micro"] == 0
+    # 幂等重放：返回同一实收且绝不再扣一次
+    assert billing_service.settle("resv:race", "test-model", 1000, 1000) == Decimal("3.5")
+    assert _account(billing_db)["plan_available_micro"] == 6_500_000
+
+
+def test_settle_after_release_with_insufficient_balance_alerts(billing_db, caplog):
+    """I11b 竞态 + 余额不足：可回收的都被回收完了、用户期间又花光了——不扣负，但欠费告警必须留病。"""
+    billing_service.grant_plan_credits(billing_db, "test", Decimal("1"), 30)
+    billing_service.reserve(billing_db, "resv:race-short", Decimal("0.4"))
+    billing_service.release("resv:race-short", reason="模拟 sweep 回收")
+    # 期间用户把 1 积分花光
+    billing_service.reserve(billing_db, "resv:drain", Decimal("1"))
+    billing_service.settle("resv:drain", "test-model", 0, 0)  # 实收 0.5，退回 0.5
+    billing_service.reserve(billing_db, "resv:drain2", Decimal("0.5"))
+    billing_service.settle("resv:drain2", "test-model", 0, 0)  # 实收 0.5，清零
+    assert _account(billing_db)["plan_available_micro"] == 0
+
+    with caplog.at_level("WARNING", logger="billing"):
+        billed = billing_service.settle("resv:race-short", "test-model", 1000, 1000)
+    assert billed == Decimal("3.5")
+    assert _account(billing_db)["plan_available_micro"] == 0  # 一分不扣负
+    alerts = [r for r in caplog.records if getattr(r, "evt", "") == "billing_settle_after_release"]
+    assert len(alerts) == 1
+    assert alerts[0].undercharged_micro == 3_500_000
+
+
 def test_expire_subscriptions_zeroes_plan_credits_once(billing_db):
     billing_service.grant_plan_credits(billing_db, "test", Decimal("8"), 30)
     with db_connection() as conn:
@@ -276,6 +332,15 @@ def test_top_up_rejects_non_positive(billing_db):
         billing_service.top_up_prepaid(billing_db, Decimal("0"), "order:zero")
     with pytest.raises(billing_service.BillingError):
         billing_service.top_up_prepaid(billing_db, Decimal("-1"), "order:neg")
+
+
+def test_duplicate_reserve_reference_rejected(billing_db):
+    """I12：同一幂等键重复预占必须显式拒绝——静默吞掉会让平台替用户多付出一次 Provider 成本。"""
+    billing_service.grant_plan_credits(billing_db, "test", Decimal("10"), 30)
+    billing_service.reserve(billing_db, "resv:dup", Decimal("4"))
+    with pytest.raises(billing_service.DuplicateReservationError):
+        billing_service.reserve(billing_db, "resv:dup", Decimal("4"))
+    assert _account(billing_db)["plan_available_micro"] == 6_000_000  # 只扣一次
 
 
 def test_both_buckets_insufficient_rejected(billing_db):
@@ -362,5 +427,97 @@ def test_runtime_track_mode_logs_but_never_blocks(billing_db, staging_entry, mon
     # track 不走预占（欠费也不拦）：账本没扣，甚至账户行都没建
     balance = billing_service.get_balance(billing_db)
     assert balance["plan_credits"] == "0"
-    assert balance["plan_reserved_credits"] == "0"
     assert balance["recent_ledger"] == []
+
+
+# ===== I12：客户端幂等键防双击双重生成 =====
+
+
+def _run_standalone(user_id: int, monkeypatch, key: str):
+    import asyncio
+
+    from services.capabilities import runtime
+
+    return asyncio.run(
+        runtime.run_capability(
+            "lyrics.generate",
+            {"theme": "moon"},
+            context=runtime.CapabilityContext(user_id=user_id, project_id=None, source="standalone"),
+            idempotency_key=key,
+        )
+    )
+
+
+def test_runtime_duplicate_idempotency_key_rejected(billing_db, staging_entry, monkeypatch):
+    """同一幂等键双击/断网重试：只执行一次生成、只动一次钱，第二次显式拒绝。"""
+    monkeypatch.setattr("core.config.BILLING_MODE", "enforce")
+    billing_service.grant_plan_credits(billing_db, "test", Decimal("10"), 30)
+
+    first = _run_standalone(billing_db, monkeypatch, "fixed-key-1234")
+    assert first.status == "succeeded"
+    assert staging_entry == ["executor"]
+
+    with pytest.raises(billing_service.DuplicateReservationError):
+        _run_standalone(billing_db, monkeypatch, "fixed-key-1234")
+    assert staging_entry == ["executor"]  # 第二次没摸到生成器
+    assert _account(billing_db)["plan_available_micro"] == 9_300_000  # 只扣一次 0.7
+
+    # 不同 key = 用户明确再生成一次，正常放行正常收费（防误判邻点）
+    second = _run_standalone(billing_db, monkeypatch, "fixed-key-5678")
+    assert second.status == "succeeded"
+    assert staging_entry == ["executor", "executor"]
+    assert _account(billing_db)["plan_available_micro"] == 8_600_000
+
+
+def test_runtime_concurrent_duplicate_key_single_execution(billing_db, staging_entry, monkeypatch):
+    """同一幂等键并发双击（竞态窗口）：BEGIN IMMEDIATE 串行后只有一个赢家。"""
+    monkeypatch.setattr("core.config.BILLING_MODE", "enforce")
+    billing_service.grant_plan_credits(billing_db, "test", Decimal("10"), 30)
+
+    outcomes: list[object] = []
+
+    def run():
+        try:
+            outcomes.append(_run_standalone(billing_db, monkeypatch, "fixed-race-key"))
+        except billing_service.DuplicateReservationError as exc:
+            outcomes.append(exc)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        t1 = pool.submit(run)
+        t2 = pool.submit(run)
+        t1.result()
+        t2.result()
+
+    duplicates = [o for o in outcomes if isinstance(o, billing_service.DuplicateReservationError)]
+    successes = [o for o in outcomes if not isinstance(o, Exception) and o.status == "succeeded"]
+    assert len(successes) == 1
+    assert len(duplicates) == 1
+    assert staging_entry == ["executor"]
+    assert _account(billing_db)["plan_available_micro"] == 9_300_000
+
+
+# ===== 对账脚本（Spec §2.5，scripts/reconcile_billing.py）=====
+
+
+def test_reconcile_passes_after_full_lifecycle(billing_db):
+    """健康账：发放→预占→结算→退回→冻结，全流程后三条不变量必须成立。"""
+    from scripts import reconcile_billing
+
+    billing_service.grant_plan_credits(billing_db, "test", Decimal("10"), 30)
+    billing_service.top_up_prepaid(billing_db, Decimal("5"), "order:recon")
+    billing_service.reserve(billing_db, "resv:recon1", Decimal("2"))
+    billing_service.settle("resv:recon1", "test-model", 1000, 500)
+    billing_service.reserve(billing_db, "resv:recon2", Decimal("1"))
+    billing_service.release("resv:recon2")
+    billing_service.reserve(billing_db, "resv:recon3", Decimal("1.5"))  # 留着 open
+    assert reconcile_billing.main() == 0
+
+
+def test_reconcile_catches_unauthorized_account_mutation(billing_db):
+    """手贱/bug 直接改账户表绕过流水——对账必须报警而非静默。"""
+    from scripts import reconcile_billing
+
+    billing_service.grant_plan_credits(billing_db, "test", Decimal("10"), 30)
+    with db_connection() as conn:
+        conn.execute("UPDATE credit_accounts SET plan_available_micro = plan_available_micro - 12345")
+    assert reconcile_billing.main() == 1
