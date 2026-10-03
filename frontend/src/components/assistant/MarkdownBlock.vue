@@ -1,6 +1,6 @@
 <template>
   <!-- eslint-disable-next-line vue/no-v-html -->
-  <div class="md-body" v-html="html" @click="handleBlockClick"></div>
+  <div class="md-body" @click="handleBlockClick" v-html="html"></div>
 </template>
 
 <script setup lang="ts">
@@ -109,9 +109,9 @@ async function handleBlockClick(event: MouseEvent) {
 }
 
 .md-body :deep(a) {
-  color: var(--accent-mist-strong, #9fb6de);
+  color: var(--accent-mist-strong, #b4b4b4);
   text-decoration: none;
-  border-bottom: 1px solid rgba(159, 182, 222, 0.35);
+  border-bottom: 1px solid rgba(180, 180, 180, 0.35);
 }
 
 .md-body :deep(a:hover) {
@@ -134,7 +134,7 @@ async function handleBlockClick(event: MouseEvent) {
 .md-body :deep(blockquote) {
   margin: 8px 0 12px;
   padding: 4px 12px;
-  border-left: 2px solid rgba(159, 182, 222, 0.45);
+  border-left: 2px solid rgba(180, 180, 180, 0.45);
   color: var(--text-secondary);
 }
 
@@ -204,7 +204,7 @@ async function handleBlockClick(event: MouseEvent) {
 }
 
 .md-body :deep(.md-code-copy.is-copied) {
-  color: #a8ccb5;
+  color: #c3c3c3;
 }
 
 .md-body :deep(.md-codeblock pre) {

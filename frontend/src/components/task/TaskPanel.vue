@@ -154,8 +154,8 @@ async function retry(jobId: string) {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #6ee7b7;
-  box-shadow: 0 0 8px #6ee7b7;
+  background: #cacaca;
+  box-shadow: 0 0 8px #cacaca;
 }
 .task-empty {
   padding: 16px 2px 6px;
@@ -168,15 +168,15 @@ async function retry(jobId: string) {
   width: 100%;
   margin-top: 12px;
   padding: 8px 9px;
-  border: 1px solid rgba(248, 113, 113, 0.2) !important;
+  border: 1px solid rgba(142, 142, 142, 0.2) !important;
   border-radius: 7px;
-  background: rgba(127, 29, 29, 0.12) !important;
-  color: #fca5a5 !important;
+  background: rgba(50, 50, 50, 0.12) !important;
+  color: #b7b7b7 !important;
   font-size: 11px;
   text-align: left;
 }
 .task-error-link:hover {
-  background: rgba(127, 29, 29, 0.2) !important;
+  background: rgba(50, 50, 50, 0.2) !important;
 }
 .task-error-link-icon {
   display: grid;
@@ -185,14 +185,14 @@ async function retry(jobId: string) {
   height: 16px;
   place-items: center;
   border-radius: 50%;
-  background: rgba(248, 113, 113, 0.18);
+  background: rgba(142, 142, 142, 0.18);
   font-size: 10px;
   font-weight: 700;
 }
 
 .task-error,
 .task-item-error {
-  color: #fca5a5;
+  color: #b7b7b7;
   font-size: 11px;
   line-height: 1.5;
 }
@@ -223,15 +223,15 @@ async function retry(jobId: string) {
   font-size: 10px;
 }
 .task-status.is-ready {
-  color: #86efac;
+  color: #d4d4d4;
 }
 .task-status.is-failed {
-  color: #fca5a5;
+  color: #b7b7b7;
 }
 .task-status.is-processing,
 .task-status.is-queued,
 .task-status.is-running {
-  color: #fcd34d;
+  color: #d2d2d2;
 }
 .task-status.is-cancelled {
   color: #a1a1aa;
@@ -247,7 +247,7 @@ async function retry(jobId: string) {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: #8b5cf6;
+  background: #717171;
   transition: width 0.3s ease;
 }
 .task-item-error {
@@ -256,12 +256,12 @@ async function retry(jobId: string) {
 .task-cancel {
   border: 0;
   background: transparent;
-  color: #a78bfa;
+  color: #999999;
   cursor: pointer;
   font-size: 11px;
   padding: 0;
 }
 .task-cancel:hover {
-  color: #c4b5fd;
+  color: #bdbdbd;
 }
 </style>

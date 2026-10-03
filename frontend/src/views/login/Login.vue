@@ -516,12 +516,12 @@ async function submitRegister() {
   box-sizing: border-box;
 }
 .field input:focus {
-  border-color: rgba(164, 182, 222, 0.45);
+  border-color: rgba(181, 181, 181, 0.45);
   background: rgba(255, 255, 255, 0.05);
-  box-shadow: 0 0 0 3px rgba(164, 182, 222, 0.1);
+  box-shadow: 0 0 0 3px rgba(181, 181, 181, 0.1);
 }
 .field input.input-error {
-  border-color: rgba(217, 140, 140, 0.6) !important;
+  border-color: rgba(156, 156, 156, 0.6) !important;
 }
 .field input::placeholder {
   color: rgba(255, 255, 255, 0.26);
@@ -611,13 +611,13 @@ async function submitRegister() {
 
 .field-error {
   font-size: 12px;
-  color: #d98c8c;
+  color: #9c9c9c;
   margin-top: 1px;
   animation: error-pop 0.28s var(--ease-soft) both;
 }
 .error-msg {
   font-size: 13px;
-  color: #d98c8c;
+  color: #9c9c9c;
   text-align: center;
   margin: -2px 0;
   animation: error-pop 0.28s var(--ease-soft) both;

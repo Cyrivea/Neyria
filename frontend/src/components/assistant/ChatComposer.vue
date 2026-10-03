@@ -363,13 +363,13 @@ onBeforeUnmount(() => {
 
 /* UI2-①：停止按钮——与 Send 同位置同尺寸，方块图标表达“可中断” */
 .composer-action.stop {
-  background: rgba(220, 60, 60, 0.16);
-  border: 1px solid rgba(220, 60, 60, 0.32) !important;
-  color: #f0b7b7;
+  background: rgba(94, 94, 94, 0.16);
+  border: 1px solid rgba(94, 94, 94, 0.32) !important;
+  color: #c3c3c3;
 }
 
 .composer-action.stop:hover {
-  background: rgba(220, 60, 60, 0.28);
+  background: rgba(94, 94, 94, 0.28);
 }
 
 /* UI2-⑥：排队消息条（斜在输入框上方，可单条移除） */
@@ -404,8 +404,8 @@ onBeforeUnmount(() => {
   font-size: 11px;
   padding: 1px 6px;
   border-radius: 999px;
-  background: rgba(122, 162, 255, 0.16);
-  color: rgb(158, 188, 255);
+  background: rgba(160, 160, 160, 0.16);
+  color: rgb(186, 186, 186);
 }
 
 .composer-queue-remove {

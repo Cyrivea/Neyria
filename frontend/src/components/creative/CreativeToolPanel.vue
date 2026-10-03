@@ -444,11 +444,16 @@ const tool = computed(() => creativeToolsStore.activePanelTool)
 const references = computed(() => tool.value?.references ?? [])
 const toolRun = computed(() => (tool.value ? (toolRunsStore.records[tool.value.id] ?? null) : null))
 const runnableTool = computed(
-  () => tool.value?.type === 'lyrics' || tool.value?.type === 'image' || tool.value?.type === 'video',
+  () =>
+    tool.value?.type === 'lyrics' || tool.value?.type === 'image' || tool.value?.type === 'video',
 )
 const isGenerating = computed(() => toolRun.value?.status === 'running')
 const generateButtonText = computed(() =>
-  tool.value?.type === 'image' ? '生成图片' : tool.value?.type === 'video' ? '生成视频' : '生成歌词',
+  tool.value?.type === 'image'
+    ? '生成图片'
+    : tool.value?.type === 'video'
+      ? '生成视频'
+      : '生成歌词',
 )
 const generationFailureText = computed(() =>
   tool.value?.type === 'image'
@@ -742,7 +747,7 @@ function artMark(type: string) {
 .panel-running-lock {
   margin: 4px 0 10px;
   padding: 8px 10px;
-  border: 1px solid rgba(96, 165, 250, 0.4);
+  border: 1px solid rgba(156, 156, 156, 0.4);
   border-radius: 8px;
   background: rgba(23, 27, 34, 0.9);
   color: #c8cdd6;
@@ -1207,8 +1212,8 @@ function artMark(type: string) {
 }
 
 .candidate-status.is-failed {
-  border-color: rgba(220, 175, 175, 0.3);
-  color: #cba8a8;
+  border-color: rgba(185, 185, 185, 0.3);
+  color: #afafaf;
 }
 
 .candidate-select {
@@ -1229,9 +1234,9 @@ function artMark(type: string) {
 }
 
 .error-block {
-  border-color: rgba(220, 175, 175, 0.24);
-  background: rgba(210, 160, 160, 0.04);
-  color: #d3a9a9;
+  border-color: rgba(185, 185, 185, 0.24);
+  background: rgba(171, 171, 171, 0.04);
+  color: #b2b2b2;
   font-size: 12.5px;
   line-height: 1.65;
 }

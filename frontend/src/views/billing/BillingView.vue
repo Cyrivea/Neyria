@@ -84,7 +84,7 @@
                 class="billing-usage-credits"
                 :class="{ inflow: !entry.amount_credits.startsWith('-') }"
               >
-                {{ entry.amount_credits }} 积分
+                {{ formatAmount(entry.amount_credits) }} 积分
               </span>
               <span class="billing-usage-time">{{ formatTime(entry.created_at) }}</span>
             </div>
@@ -177,6 +177,12 @@ function ledgerLabel(type: string): string {
   return LEDGER_LABELS[type] ?? type
 }
 
+/** 单色 UI 去掉了正负颜色语义，入账金额加 + 前缀保持可读性。 */
+function formatAmount(amount: string): string {
+  if (amount.startsWith('-') || Number(amount) === 0) return amount
+  return `+${amount}`
+}
+
 function formatTime(iso: string): string {
   const dt = new Date(iso)
   if (Number.isNaN(dt.getTime())) return iso
@@ -262,9 +268,9 @@ onMounted(load)
 .billing-refresh {
   padding: 7px 16px;
   border-radius: 10px;
-  border: 1px solid rgba(96, 165, 250, 0.4);
+  border: 1px solid rgba(156, 156, 156, 0.4);
   background: transparent;
-  color: #60a5fa;
+  color: #9c9c9c;
   font-size: 13px;
   cursor: pointer;
   white-space: nowrap;
@@ -286,7 +292,7 @@ onMounted(load)
 .billing-state-card {
   max-width: 880px;
   margin: 40px auto 0;
-  border: 1px solid rgba(248, 113, 113, 0.3);
+  border: 1px solid rgba(142, 142, 142, 0.3);
   border-radius: 16px;
   padding: 32px;
   text-align: center;
@@ -470,7 +476,8 @@ onMounted(load)
 }
 
 .billing-usage-credits.inflow {
-  color: #34d399;
+  color: var(--text-primary, #f4f4f4);
+  font-weight: 600;
 }
 
 .billing-usage-time {
@@ -534,8 +541,8 @@ onMounted(load)
 }
 
 .billing-action-button.primary {
-  background: #60a5fa;
-  border-color: #60a5fa;
+  background: #9c9c9c;
+  border-color: #9c9c9c;
   color: #0a0a0c;
   font-weight: 600;
 }

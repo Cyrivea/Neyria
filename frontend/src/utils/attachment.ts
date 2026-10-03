@@ -8,9 +8,22 @@ export type AttachmentKind = 'image' | 'pdf' | 'word' | 'excel' | 'ppt' | 'text'
 
 /** 附件白名单（选块器/粘贴/拖拽三个入口共用，防人工散滑） */
 export const ATTACHMENT_ACCEPT_EXTENSIONS = [
-  'png', 'jpg', 'jpeg', 'gif', 'webp',
-  'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
-  'txt', 'md', 'json', 'csv',
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'pdf',
+  'doc',
+  'docx',
+  'xls',
+  'xlsx',
+  'ppt',
+  'pptx',
+  'txt',
+  'md',
+  'json',
+  'csv',
 ] as const
 
 /** 把任意来源文件拦分成可用/被拒两拨；被拒返回给调用方数量的 toast */
@@ -144,11 +157,7 @@ export function renamePastedFile(file: File, now: Date = new Date()): File {
   if (!generic) return file
   const fromMime = file.type.split('/')[1]?.replace('jpeg', 'jpg') || ''
   const extension = getAttachmentExtension(file.name) || fromMime || 'bin'
-  const stamp = now
-    .toISOString()
-    .replace(/[-:]/g, '')
-    .replace('T', '-')
-    .slice(0, 15)
+  const stamp = now.toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15)
   const rand = Math.random().toString(36).slice(2, 6)
   return new File([file], `pasted-${stamp}-${rand}.${extension}`, { type: file.type })
 }

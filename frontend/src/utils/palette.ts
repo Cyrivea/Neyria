@@ -13,10 +13,7 @@ export interface PaletteCommand {
 }
 
 /** 子串模糊匹配：标题 > 关键词 > meta；全部转小写，中英文一视同仁 */
-export function filterPaletteCommands(
-  commands: PaletteCommand[],
-  query: string,
-): PaletteCommand[] {
+export function filterPaletteCommands(commands: PaletteCommand[], query: string): PaletteCommand[] {
   const q = query.trim().toLowerCase()
   if (!q) return commands
   return commands.filter((command) => {

@@ -125,9 +125,9 @@
             <div v-if="citation.excerpt" class="agent-citation-pop" role="tooltip">
               <div class="agent-citation-pop-excerpt">{{ citation.excerpt }}</div>
               <div class="agent-citation-pop-meta">
-                片段 {{ citation.chunk_index + 1 }}/{{ citation.chunk_count }}<template
-                  v-if="citation.distance != null"
-                  > · 相似距离 {{ citation.distance.toFixed(3) }}</template
+                片段 {{ citation.chunk_index + 1 }}/{{ citation.chunk_count
+                }}<template v-if="citation.distance != null">
+                  · 相似距离 {{ citation.distance.toFixed(3) }}</template
                 >
               </div>
             </div>
@@ -190,7 +190,7 @@
               aria-hidden="true"
             >
               <path d="M21 4v6h-6" />
-              <path d="M21 10a9 9 0 1 1-2.64-6.36L21 6.5"/>
+              <path d="M21 10a9 9 0 1 1-2.64-6.36L21 6.5" />
             </svg>
           </button>
           <!-- UI2-⑤：有用/没用；再点一次同按钮=取消评分 -->
@@ -487,8 +487,8 @@ const visibleMessages = computed(() =>
   line-height: 1.6;
   text-align: center;
   color: var(--text-secondary, rgba(255, 255, 255, 0.62));
-  background: rgba(122, 162, 255, 0.08);
-  border: 1px solid rgba(122, 162, 255, 0.18);
+  background: rgba(160, 160, 160, 0.08);
+  border: 1px solid rgba(160, 160, 160, 0.18);
 }
 
 .agent-message-meta {
@@ -530,7 +530,7 @@ const visibleMessages = computed(() =>
   display: block;
   margin-top: 6px;
   font-size: 10px;
-  color: #f0a860;
+  color: #b2b2b2;
 }
 
 .agent-message-bubble.is-pending {
@@ -584,8 +584,8 @@ const visibleMessages = computed(() =>
 
 /* UI2-⑤：已选中的评分保持常亮 */
 .agent-action-btn.is-active {
-  color: rgb(142, 197, 255);
-  background: rgba(122, 162, 255, 0.14);
+  color: rgb(189, 189, 189);
+  background: rgba(160, 160, 160, 0.14);
 }
 
 /* UI2-②：原位编辑框 */
@@ -600,7 +600,7 @@ const visibleMessages = computed(() =>
   width: 100%;
   min-height: 64px;
   resize: vertical;
-  border: 1px solid rgba(122, 162, 255, 0.32);
+  border: 1px solid rgba(160, 160, 160, 0.32);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.04);
   color: var(--text-primary);
@@ -612,7 +612,7 @@ const visibleMessages = computed(() =>
 
 .agent-edit-warning {
   font-size: 12px;
-  color: rgb(240, 183, 120);
+  color: rgb(191, 191, 191);
 }
 
 .agent-edit-actions {
@@ -638,7 +638,7 @@ const visibleMessages = computed(() =>
 
 .agent-edit-btn.is-primary {
   color: #10131c;
-  background: rgb(158, 188, 255);
+  background: rgb(186, 186, 186);
 }
 
 .agent-edit-btn.is-primary:disabled {
@@ -660,7 +660,7 @@ const visibleMessages = computed(() =>
   padding: 10px 12px;
   border-radius: 12px;
   background: rgba(18, 20, 30, 0.96);
-  border: 1px solid rgba(122, 162, 255, 0.22);
+  border: 1px solid rgba(160, 160, 160, 0.22);
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.4);
 }
 
@@ -697,16 +697,16 @@ const visibleMessages = computed(() =>
   padding: 7px 14px;
   border-radius: 999px;
   font-size: 13px;
-  color: rgb(158, 188, 255);
-  background: rgba(122, 162, 255, 0.1);
-  border: 1px solid rgba(122, 162, 255, 0.22);
+  color: rgb(186, 186, 186);
+  background: rgba(160, 160, 160, 0.1);
+  border: 1px solid rgba(160, 160, 160, 0.22);
   cursor: pointer;
   transition: background 160ms ease;
   text-align: left;
 }
 
 .agent-followup-chip:hover {
-  background: rgba(122, 162, 255, 0.2);
+  background: rgba(160, 160, 160, 0.2);
 }
 
 .agent-action-btn {
@@ -781,9 +781,9 @@ const visibleMessages = computed(() =>
 }
 
 .agent-message.is-error .agent-message-bubble {
-  border-color: rgba(173, 72, 72, 0.24);
-  background: rgba(143, 45, 45, 0.1);
-  color: #f0d8d8;
+  border-color: rgba(93, 93, 93, 0.24);
+  background: rgba(66, 66, 66, 0.1);
+  color: #dddddd;
 }
 
 .agent-message-citations {
@@ -792,14 +792,14 @@ const visibleMessages = computed(() =>
   gap: 3px;
   max-width: min(92%, 100%);
   padding: 7px 10px;
-  border-left: 2px solid rgba(167, 139, 250, 0.45);
+  border-left: 2px solid rgba(153, 153, 153, 0.45);
   color: var(--text-secondary);
   font-size: 11px;
   line-height: 1.45;
 }
 
 .agent-citation-title {
-  color: rgba(196, 181, 253, 0.9);
+  color: rgba(189, 189, 189, 0.9);
   font-size: 10px;
   letter-spacing: 0.08em;
 }

@@ -1209,7 +1209,7 @@ onBeforeUnmount(() => {
   height: 72px;
   place-items: center;
   transform: translateY(-50%);
-  border: 1px solid rgba(96, 165, 250, 0.45) !important;
+  border: 1px solid rgba(156, 156, 156, 0.45) !important;
   border-radius: 8px 0 0 8px;
   background: rgba(255, 255, 255, 0.07) !important;
   color: #d3d3d3 !important;

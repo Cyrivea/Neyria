@@ -85,10 +85,7 @@ describe('useChatStore.truncateForEdit', () => {
 
   it('各种错怔靶全部拒绝且不动作表', () => {
     const store = useChatStore()
-    store.messages = [
-      msgWithDb('user', '问', 10),
-      msgWithDb('assistant', '答', 11),
-    ]
+    store.messages = [msgWithDb('user', '问', 10), msgWithDb('assistant', '答', 11)]
     expect(store.truncateForEdit(11)).toBe(false) // assistant 消息不可锚
     expect(store.truncateForEdit(999)).toBe(false) // 不存在的 id
     expect(store.messages).toHaveLength(2)

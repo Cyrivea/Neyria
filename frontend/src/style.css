@@ -38,12 +38,15 @@
   --ease-glide: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
 
-  /* 点缀色（仅用于文字/细线，不做色块） */
-  --accent-mist: rgba(164, 182, 222, 0.72);
-  --accent-mist-strong: #9fb6de;
-  --accent-mauve: #c7addd;
-  --accent-sage: #a8ccb5;
-  --accent-sand: #dcc398;
+  /* 【硬约束】Neyria UI 只允许黑 / 白 / 灰（详见 CLAUDE.md「UI 单色法」）。
+     禁止引入任何带色相的颜色；语义（成功/失败/强调）一律用明度差 + 图标/文字表达。
+     下列变量历史上是蓝/紫/绿/黄点缀色，2026-10-03 全部去饱和为中性灰，
+     变量名保留仅为兼容存量引用，新增代码继续用它们或灰阶字面量均可。 */
+  --accent-mist: rgba(181, 181, 181, 0.72);
+  --accent-mist-strong: #b4b4b4;
+  --accent-mauve: #b6b6b6;
+  --accent-sage: #c3c3c3;
+  --accent-sand: #c5c5c5;
 }
 
 *,
@@ -79,7 +82,7 @@ body {
 /* ---------------- 全局细节：选区 / 焦点 / 滚动条 ---------------- */
 
 ::selection {
-  background: rgba(164, 182, 222, 0.26);
+  background: rgba(181, 181, 181, 0.26);
   color: #f6f8fc;
 }
 

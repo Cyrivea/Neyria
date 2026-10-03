@@ -276,9 +276,9 @@ onBeforeUnmount(() => document.removeEventListener('keydown', handleKeydown))
 .settings-error-count {
   flex: 0 0 auto;
   padding: 3px 8px;
-  border: 1px solid rgba(248, 113, 113, 0.28);
+  border: 1px solid rgba(142, 142, 142, 0.28);
   border-radius: 999px;
-  color: #fca5a5;
+  color: #b7b7b7;
   font-size: 10px;
 }
 
@@ -288,9 +288,9 @@ onBeforeUnmount(() => document.removeEventListener('keydown', handleKeydown))
   gap: 10px;
   margin-top: 14px;
   padding: 14px;
-  border: 1px solid rgba(134, 239, 172, 0.15);
+  border: 1px solid rgba(212, 212, 212, 0.15);
   border-radius: 10px;
-  background: rgba(134, 239, 172, 0.04);
+  background: rgba(212, 212, 212, 0.04);
 }
 
 .settings-empty-icon {
@@ -299,13 +299,13 @@ onBeforeUnmount(() => document.removeEventListener('keydown', handleKeydown))
   height: 24px;
   place-items: center;
   border-radius: 50%;
-  background: rgba(134, 239, 172, 0.14);
-  color: #86efac;
+  background: rgba(212, 212, 212, 0.14);
+  color: #d4d4d4;
   font-size: 13px;
 }
 
 .settings-empty-title {
-  color: #d1fae5;
+  color: #f0f0f0;
   font-size: 12px;
 }
 
@@ -323,9 +323,9 @@ onBeforeUnmount(() => document.removeEventListener('keydown', handleKeydown))
 
 .settings-error-item {
   padding: 12px;
-  border: 1px solid rgba(248, 113, 113, 0.2);
+  border: 1px solid rgba(142, 142, 142, 0.2);
   border-radius: 10px;
-  background: rgba(127, 29, 29, 0.12);
+  background: rgba(50, 50, 50, 0.12);
 }
 
 .settings-error-item-head {
@@ -339,8 +339,8 @@ onBeforeUnmount(() => document.removeEventListener('keydown', handleKeydown))
   height: 20px;
   place-items: center;
   border-radius: 50%;
-  background: rgba(248, 113, 113, 0.18);
-  color: #fca5a5;
+  background: rgba(142, 142, 142, 0.18);
+  color: #b7b7b7;
   font-size: 12px;
   font-weight: 700;
 }
@@ -348,7 +348,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', handleKeydown))
 .settings-error-title {
   min-width: 0;
   overflow: hidden;
-  color: #fecaca;
+  color: #d5d5d5;
   font-size: 12px;
   font-weight: 600;
   text-overflow: ellipsis;
@@ -358,14 +358,14 @@ onBeforeUnmount(() => document.removeEventListener('keydown', handleKeydown))
 .settings-error-source {
   flex: 0 0 auto;
   margin-left: auto;
-  color: #f87171;
+  color: #8e8e8e;
   font-size: 10px;
 }
 
 .settings-error-message {
   margin: 9px 0 0 30px;
   overflow-wrap: anywhere;
-  color: #fca5a5;
+  color: #b7b7b7;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
   line-height: 1.5;
@@ -380,14 +380,14 @@ onBeforeUnmount(() => document.removeEventListener('keydown', handleKeydown))
 .settings-error-action {
   margin: 10px 0 0 30px;
   padding: 5px 9px;
-  border: 1px solid rgba(167, 139, 250, 0.3) !important;
+  border: 1px solid rgba(153, 153, 153, 0.3) !important;
   border-radius: 5px;
-  color: #c4b5fd !important;
+  color: #bdbdbd !important;
   font-size: 11px;
 }
 
 .settings-error-action:hover {
-  background: rgba(139, 92, 246, 0.14) !important;
+  background: rgba(113, 113, 113, 0.14) !important;
 }
 
 .settings-runtime-grid {

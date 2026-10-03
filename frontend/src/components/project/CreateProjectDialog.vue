@@ -121,7 +121,13 @@
 // 完成后通过 created 事件把新项目快照交给布局层导航。
 import { ref, watch } from 'vue'
 import { ElMessage } from '@/utils/toast'
-import { createProject, discardProject, getProject, markProjectSaved, type ProjectPayload } from '@/serve/project'
+import {
+  createProject,
+  discardProject,
+  getProject,
+  markProjectSaved,
+  type ProjectPayload,
+} from '@/serve/project'
 import { getCurrentTimestampParts } from '@/utils/datetime'
 import {
   PROJECT_SUBDIRS,
@@ -200,16 +206,12 @@ async function ensureCurrentProjectSaved() {
   const currentName = projectStore.name
   const projectMeta: ProjectFileContent = {
     name:
-      currentName && currentName !== '当前未命名工程'
-        ? currentName
-        : buildAutoSaveProjectName(),
+      currentName && currentName !== '当前未命名工程' ? currentName : buildAutoSaveProjectName(),
     created_at: now.display,
     updated_at: now.display,
     save_mode: projectStore.saveMode,
     version: '0.1.0',
-    ...(typeof projectStore.id === 'number' && projectStore.id > 0
-      ? { id: projectStore.id }
-      : {}),
+    ...(typeof projectStore.id === 'number' && projectStore.id > 0 ? { id: projectStore.id } : {}),
   }
   await writeLocalJsonFile(handle, 'project.json', projectMeta)
 

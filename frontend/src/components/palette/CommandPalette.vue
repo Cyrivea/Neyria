@@ -146,7 +146,7 @@ function pick(command: PaletteCommand) {
 }
 
 .palette-item.active {
-  background: rgba(122, 162, 255, 0.16);
+  background: rgba(160, 160, 160, 0.16);
 }
 
 .palette-item-title {

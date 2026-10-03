@@ -39,11 +39,7 @@
       }"
       @scroll="handleBodyScroll"
     >
-      <MessageList
-        @regenerate="handleRegenerate"
-        @edit="handleEdit"
-        @feedback="handleFeedback"
-      />
+      <MessageList @regenerate="handleRegenerate" @edit="handleEdit" @feedback="handleFeedback" />
 
       <div v-if="chatStore.isSending" class="agent-status-line">
         <span class="agent-status-pulse" aria-hidden="true"></span>
@@ -189,15 +185,15 @@ defineExpose({ loadHistory, scrollToBottom })
   padding: 6px 14px;
   border-radius: 999px;
   font-size: 12px;
-  color: rgb(190, 208, 255);
-  background: rgba(24, 28, 44, 0.94);
-  border: 1px solid rgba(122, 162, 255, 0.3);
+  color: rgb(208, 208, 208);
+  background: rgba(28, 28, 28, 0.94);
+  border: 1px solid rgba(160, 160, 160, 0.3);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
   cursor: pointer;
 }
 
 .agent-back-to-bottom:hover {
-  background: rgba(36, 42, 64, 0.96);
+  background: rgba(42, 42, 42, 0.96);
 }
 
 /* UI2 第二批②：拖拽覆盖层 */
@@ -213,11 +209,11 @@ defineExpose({ loadHistory, scrollToBottom })
 
 .assistant-drop-box {
   padding: 18px 34px;
-  border: 1.5px dashed rgba(158, 188, 255, 0.6);
+  border: 1.5px dashed rgba(186, 186, 186, 0.6);
   border-radius: 16px;
-  color: rgb(190, 208, 255);
+  color: rgb(208, 208, 208);
   font-size: 14px;
-  background: rgba(122, 162, 255, 0.08);
+  background: rgba(160, 160, 160, 0.08);
 }
 
 .assistant-panel {

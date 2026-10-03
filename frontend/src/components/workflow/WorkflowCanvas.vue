@@ -444,7 +444,7 @@ const canvasNodes = computed<CanvasNode[]>(() => {
       endpoint: 'input',
       name: '输入',
       description: '主题、初始文本和参考文件',
-      color: '#60a5fa',
+      color: '#9c9c9c',
       x: inputPosition.x,
       y: inputPosition.y,
       width: 184,
@@ -463,7 +463,7 @@ const canvasNodes = computed<CanvasNode[]>(() => {
       endpoint: 'output',
       name: '输出',
       description: '展示、保存和导出最终结果',
-      color: '#a78bfa',
+      color: '#999999',
       x: outputPosition.x,
       y: outputPosition.y,
       width: 184,
@@ -918,7 +918,7 @@ onBeforeUnmount(() => {
   inset: 0;
   overflow: hidden;
   background-color: #0d0e11;
-  background-image: radial-gradient(circle, rgba(148, 163, 184, 0.17) 1px, transparent 1px);
+  background-image: radial-gradient(circle, rgba(161, 161, 161, 0.17) 1px, transparent 1px);
   background-position: 10px 10px;
   background-size: 24px 24px;
   color: #d7d8dc;
@@ -949,7 +949,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
-  border: 1px solid rgba(96, 165, 250, 0.45);
+  border: 1px solid rgba(156, 156, 156, 0.45);
   border-radius: 8px;
   background: rgba(23, 27, 34, 0.92);
   color: #c8cdd6;
@@ -966,8 +966,8 @@ onBeforeUnmount(() => {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  border: 2px solid rgba(96, 165, 250, 0.25);
-  border-top-color: #60a5fa;
+  border: 2px solid rgba(156, 156, 156, 0.25);
+  border-top-color: #9c9c9c;
   animation: workflow-spin 0.9s linear infinite;
 }
 
@@ -1013,13 +1013,13 @@ onBeforeUnmount(() => {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #60a5fa;
-  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.15);
+  background: #9c9c9c;
+  box-shadow: 0 0 0 3px rgba(156, 156, 156, 0.15);
 }
 
 .workflow-mode-dot.is-pan {
-  background: #c084fc;
-  box-shadow: 0 0 0 3px rgba(192, 132, 252, 0.15);
+  background: #999999;
+  box-shadow: 0 0 0 3px rgba(153, 153, 153, 0.15);
 }
 
 .workflow-connection-hint {
@@ -1031,25 +1031,25 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   padding: 7px 10px;
-  border: 1px solid rgba(96, 165, 250, 0.5);
+  border: 1px solid rgba(156, 156, 156, 0.5);
   border-radius: 7px;
-  background: rgba(22, 35, 55, 0.96);
-  color: #cfe4ff;
+  background: rgba(34, 34, 34, 0.96);
+  color: #e1e1e1;
   font-size: 10px;
 }
 
 .workflow-connection-hint button {
   padding: 2px 5px;
   border-radius: 4px;
-  color: #9ecbff;
+  color: #c5c5c5;
   font-size: 10px;
 }
 
 .workflow-selection-box {
   position: absolute;
   z-index: 4;
-  border: 1px solid rgba(96, 165, 250, 0.9);
-  background: rgba(96, 165, 250, 0.12);
+  border: 1px solid rgba(156, 156, 156, 0.9);
+  background: rgba(156, 156, 156, 0.12);
   pointer-events: none;
 }
 
@@ -1083,26 +1083,26 @@ onBeforeUnmount(() => {
 
 .workflow-connections .workflow-connection-line {
   fill: none;
-  stroke: rgba(213, 226, 240, 0.88);
+  stroke: rgba(224, 224, 224, 0.88);
   stroke-width: 2.25;
   stroke-linecap: round;
   stroke-linejoin: round;
   opacity: 0.92;
   pointer-events: none;
-  filter: drop-shadow(0 0 2px rgba(161, 202, 246, 0.32));
+  filter: drop-shadow(0 0 2px rgba(196, 196, 196, 0.32));
 }
 
 .workflow-connections .workflow-connection-hit:hover + .workflow-connection-line {
   stroke: #eef6ff;
-  filter: drop-shadow(0 0 4px rgba(161, 202, 246, 0.6));
+  filter: drop-shadow(0 0 4px rgba(196, 196, 196, 0.6));
 }
 
 .workflow-connections .workflow-connection-preview {
-  stroke: #9ed0ff;
+  stroke: #c9c9c9;
   stroke-width: 2.5;
   stroke-dasharray: 6 6;
   opacity: 0.95;
-  filter: drop-shadow(0 0 3px rgba(96, 165, 250, 0.45));
+  filter: drop-shadow(0 0 3px rgba(156, 156, 156, 0.45));
 }
 
 .workflow-node {
@@ -1249,7 +1249,7 @@ onBeforeUnmount(() => {
   background: transparent !important;
   box-shadow:
     0 0 0 1px rgba(10, 13, 18, 0.86),
-    0 0 4px rgba(222, 236, 250, 0.38);
+    0 0 4px rgba(234, 234, 234, 0.38);
   cursor: crosshair;
   transition:
     background-color 140ms ease,
@@ -1275,10 +1275,10 @@ onBeforeUnmount(() => {
 .workflow-node-port.is-hot,
 .workflow-node-port.is-target:hover {
   border-color: #ffffff !important;
-  background: rgba(117, 178, 235, 0.2) !important;
+  background: rgba(169, 169, 169, 0.2) !important;
   box-shadow:
-    0 0 0 2px rgba(96, 165, 250, 0.16),
-    0 0 9px rgba(147, 197, 253, 0.62);
+    0 0 0 2px rgba(156, 156, 156, 0.16),
+    0 0 9px rgba(190, 190, 190, 0.62);
   transform: scale(1.16);
 }
 
@@ -1340,12 +1340,12 @@ onBeforeUnmount(() => {
 
 .workflow-tool-button.active {
   position: relative;
-  border: 1px solid #8bc7ff !important;
-  background: #367cc4 !important;
+  border: 1px solid #bebebe !important;
+  background: #727272 !important;
   color: #ffffff !important;
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.18),
-    0 0 14px rgba(59, 130, 246, 0.52);
+    0 0 14px rgba(123, 123, 123, 0.52);
 }
 
 .workflow-tool-button.active::after {
@@ -1354,8 +1354,8 @@ onBeforeUnmount(() => {
   width: 4px;
   height: 16px;
   border-radius: 2px;
-  background: #9bd1ff;
-  box-shadow: 0 0 8px rgba(96, 165, 250, 0.8);
+  background: #c9c9c9;
+  box-shadow: 0 0 8px rgba(156, 156, 156, 0.8);
   content: '';
 }
 
@@ -1435,7 +1435,7 @@ onBeforeUnmount(() => {
 
 .workflow-minimap-connections path {
   fill: none;
-  stroke: rgba(188, 204, 222, 0.58);
+  stroke: rgba(202, 202, 202, 0.58);
   stroke-width: 0.8;
   stroke-linecap: round;
   pointer-events: none;
@@ -1472,9 +1472,9 @@ onBeforeUnmount(() => {
   min-height: 10px;
   border: 1px solid rgba(255, 255, 255, 0.9);
   border-radius: 2px;
-  background: rgba(96, 165, 250, 0.1);
+  background: rgba(156, 156, 156, 0.1);
   box-shadow:
-    0 0 0 1px rgba(96, 165, 250, 0.28),
+    0 0 0 1px rgba(156, 156, 156, 0.28),
     inset 0 0 0 1px rgba(255, 255, 255, 0.12);
   cursor: move;
   touch-action: none;
@@ -1484,10 +1484,10 @@ onBeforeUnmount(() => {
 }
 
 .workflow-minimap-viewport:hover {
-  background: rgba(96, 165, 250, 0.2);
+  background: rgba(156, 156, 156, 0.2);
   box-shadow:
-    0 0 0 1px rgba(147, 197, 253, 0.7),
-    0 0 8px rgba(96, 165, 250, 0.35),
+    0 0 0 1px rgba(190, 190, 190, 0.7),
+    0 0 8px rgba(156, 156, 156, 0.35),
     inset 0 0 0 1px rgba(255, 255, 255, 0.2);
 }
 
