@@ -28,6 +28,12 @@ const router = createRouter({
       component: () => import('@/views/workstation/Workstation.vue'),
       meta: { requiresAuth: true },
     },
+    {
+      path: '/billing',
+      name: 'Billing',
+      component: () => import('@/views/billing/BillingView.vue'),
+      meta: { requiresAuth: true },
+    },
   ],
 })
 

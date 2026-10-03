@@ -69,6 +69,30 @@ def list_for_user(user_id: int, limit: int = 100) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def summarize_for_user_since(user_id: int, since_iso: str) -> list[dict[str, Any]]:
+    """按能力聚合某时刻起的用量（计费页「近 N 天用量」数据源）。
+
+    billed_credits_micro 只在计费结算挂过号的行上有值（BILLING_MODE=off 时为 NULL），
+    聚合时对 NULL 记 0——调用次数永远真实，金额随计费开关逐渐丰满。
+    """
+    with db_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT capability_id,
+                   COUNT(*) AS calls,
+                   SUM(CASE WHEN status='succeeded' THEN 1 ELSE 0 END) AS succeeded,
+                   COALESCE(SUM(billed_credits_micro), 0) AS billed_micro
+            FROM usage_events
+            WHERE user_id=? AND datetime(created_at) >= datetime(?)
+            GROUP BY capability_id
+            ORDER BY billed_micro DESC
+            """,
+            (user_id, since_iso),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def count_for_user(user_id: int) -> int:
     with db_connection() as conn:
         row = conn.execute(

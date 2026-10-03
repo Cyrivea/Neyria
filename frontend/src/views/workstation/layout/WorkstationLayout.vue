@@ -65,12 +65,10 @@
             <div class="icon-rail" aria-label="Side navigation">
               <button
                 class="icon-button"
-                :class="{ active: isBillingOpen }"
                 title="Billing"
                 type="button"
-                :aria-expanded="isBillingOpen"
-                aria-label="打开计费面板"
-                @click="isBillingOpen = !isBillingOpen"
+                aria-label="打开计费与用量页"
+                @click="router.push('/billing')"
               >
                 ☰
               </button>
@@ -183,7 +181,6 @@
     />
 
     <SettingsPanel :open="isSettingsOpen" @close="isSettingsOpen = false" />
-    <BillingPanel :open="isBillingOpen" @close="isBillingOpen = false" />
 
     <!-- UI2 第二批④：⌘K/Ctrl+K 命令面板 -->
     <CommandPalette
@@ -279,7 +276,6 @@ import CreativeToolPicker from '@/components/creative/CreativeToolPicker.vue'
 import CreativeToolPanel from '@/components/creative/CreativeToolPanel.vue'
 import WorkflowCanvas from '@/components/workflow/WorkflowCanvas.vue'
 import SettingsPanel from '@/components/settings/SettingsPanel.vue'
-import BillingPanel from '@/components/billing/BillingPanel.vue'
 import { JOB_TERMINAL_EVENT } from '@/utils/jobTransitions'
 import '@/views/workstation/styles/workstation-base.css'
 
@@ -305,7 +301,6 @@ const { id: projectId } = storeToRefs(projectStore)
 
 const isToolModalOpen = ref(false)
 const isSettingsOpen = ref(false)
-const isBillingOpen = ref(false)
 const isAssistantCollapsed = ref(false)
 
 // UI2 第二批④：命令面板（⌘K/Ctrl+K）。命令走注册表，新增功能 = 加一条命令项。
@@ -336,9 +331,9 @@ const paletteCommands = computed<PaletteCommand[]>(() => [
   },
   {
     id: 'billing',
-    title: 'Billing 面板',
-    meta: '查看额度与用量',
-    keywords: ['billing', 'zhangdan', '账单'],
+    title: '打开计费与用量页',
+    meta: '额度、用量与账户流水（独立页面）',
+    keywords: ['billing', 'zhangdan', '账单', 'jifei', '计费'],
   },
   {
     id: 'settings',
@@ -373,7 +368,7 @@ async function handlePaletteSelect(command: PaletteCommand) {
       void handleOpenProjectPicker()
       break
     case 'billing':
-      isBillingOpen.value = true
+      void router.push('/billing')
       break
     case 'settings':
       isSettingsOpen.value = true

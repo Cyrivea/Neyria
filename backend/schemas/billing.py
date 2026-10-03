@@ -27,6 +27,18 @@ class BalanceResponse(BaseModel):
     recent_ledger: list[LedgerEntryView]
 
 
+class UsageSummaryItem(BaseModel):
+    capability_id: str
+    calls: int
+    succeeded: int
+    billed_credits: str
+
+
+class UsageSummaryResponse(BaseModel):
+    days: int
+    items: list[UsageSummaryItem]
+
+
 class TestGrantResponse(BaseModel):
     subscription_id: int
     credits: str

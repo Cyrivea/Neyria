@@ -513,6 +513,27 @@ def test_reconcile_passes_after_full_lifecycle(billing_db):
     assert reconcile_billing.main() == 0
 
 
+def test_usage_summary_aggregates_by_capability(billing_db):
+    """usage-summary 聚合：30 天窗口内按能力分流，金额取已结算的 billed_credits。"""
+    from repositories import usage_repo
+
+    since = (datetime.now(UTC) - timedelta(days=30)).isoformat()
+    future = datetime.now(UTC).isoformat()
+    usage_repo.insert(billing_db, None, "lyrics.generate", "standalone", "test-model", 100, 50, 150, "succeeded", None, 100, future)
+    usage_repo.insert(billing_db, None, "lyrics.generate", "workflow", "test-model", 200, 100, 300, "failed", "x", 200, future)
+    usage_repo.insert(billing_db, None, "image.generate", "standalone", "img-m", 0, 0, 0, "succeeded", None, 300, future)
+    # 一个月前的老数据必须被窗口排除
+    old = (datetime.now(UTC) - timedelta(days=31)).isoformat()
+    usage_repo.insert(billing_db, None, "lyrics.generate", "standalone", "test-model", 10, 10, 20, "succeeded", None, 50, old)
+
+    rows = usage_repo.summarize_for_user_since(billing_db, since)
+    by_cap = {r["capability_id"]: r for r in rows}
+    assert set(by_cap) == {"lyrics.generate", "image.generate"}
+    assert by_cap["lyrics.generate"]["calls"] == 2
+    assert by_cap["lyrics.generate"]["succeeded"] == 1
+    assert by_cap["image.generate"]["calls"] == 1
+
+
 def test_reconcile_catches_unauthorized_account_mutation(billing_db):
     """手贱/bug 直接改账户表绕过流水——对账必须报警而非静默。"""
     from scripts import reconcile_billing
