@@ -69,6 +69,16 @@ def list_for_user(user_id: int, limit: int = 100) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def attach_provider_cost(event_id: int, provider_cost_micro: int) -> None:
+    """给一条用量记录补上上游成本估値（I3）。与账单列分两条写入路径：
+    估値缺失/NULL 合法——代表「该模型成本未校准」，宁缺不造假。"""
+    with db_connection() as conn:
+        conn.execute(
+            "UPDATE usage_events SET provider_cost_micro=? WHERE id=?",
+            (provider_cost_micro, event_id),
+        )
+
+
 def summarize_for_user_since(user_id: int, since_iso: str) -> list[dict[str, Any]]:
     """按能力聚合某时刻起的用量（计费页「近 N 天用量」数据源）。
 

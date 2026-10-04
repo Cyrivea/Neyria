@@ -25,6 +25,7 @@ from core import config
 from repositories import usage_repo
 from schemas.capability import CapabilityResult
 from services import billing_service
+from services import provider_cost as provider_cost_service
 from services.capabilities.zhipu_text import ModelNotConfiguredError
 
 logger = logging.getLogger("capabilities")
@@ -98,7 +99,17 @@ async def _record_usage(
             duration_ms,
             datetime.now(UTC).isoformat(),
         )
-        return int(event["id"])
+        event_id = int(event["id"])
+        # I3：估算上游成本挂到账本（未收录模型返回 None → 列保持 NULL，宁缺不造假）；
+        # 估算/写库失败只记日志，绝不阻塞生成主链。
+        provider_cost = provider_cost_service.estimate_cost_micro(
+            model,
+            int(usage["prompt_tokens"]) if usage else 0,
+            int(usage["completion_tokens"]) if usage else 0,
+        )
+        if provider_cost is not None:
+            await asyncio.to_thread(usage_repo.attach_provider_cost, event_id, provider_cost)
+        return event_id
     except Exception as exc:
         logger.warning(
             "用量记录写不进入处： %s",

@@ -108,6 +108,10 @@ BILLING_TEST_GRANT_PERIOD_DAYS = int(os.getenv("BILLING_TEST_GRANT_PERIOD_DAYS",
 BILLING_LYRICS_RESERVE_CREDITS = os.getenv("BILLING_LYRICS_RESERVE_CREDITS", "3").strip()
 BILLING_IMAGE_RESERVE_CREDITS = os.getenv("BILLING_IMAGE_RESERVE_CREDITS", "2").strip()
 BILLING_VIDEO_RESERVE_CREDITS = os.getenv("BILLING_VIDEO_RESERVE_CREDITS", "5").strip()
+# 上游 Provider 成本估算的环境覆盖（services/provider_cost.py 消费）：JSON 字符串，
+# 例{"Wan-AI/Wan2.2-T2V-A14B": {"kind": "per_call", "yuan": "1.50"}}——调价/换源不改代码。
+PROVIDER_COST_OVERRIDES_JSON = os.getenv("PROVIDER_COST_OVERRIDES_JSON", "").strip()
+
 # 预占超过这个秒数未被结算/释放视为提交方崩溃，由 sweep 恢复原占用额度。
 # 下限约束：必须大于最慢能力的真实耗时。Wan2.2 视频实测单次 3m29s，Provider 排队另算，
 # 取 900s 留约 4 倍余量（Spec v1 的 300s 已被差决策记录推翻——会误杀在途视频）。
