@@ -304,7 +304,11 @@ def get_balance(user_id: int, *, now: str | None = None) -> dict[str, Any]:
     惰性 sweep 是 I11 的副保险：主保险是 Worker 每 BILLING_SWEEP_INTERVAL_SECONDS 主动扫；
     worker 没跑（比如只起了 uvicorn 的环境）时，用户打开计费面板也能顺带回收僵尸预占。
     两处并发碰同一笔预占时 release 内 BEGIN IMMEDIATE 串行 + 非 open 静默返回，天然幂等。
+
+    I8 补充：附带当前生效套餐快照（档位/总额度/到期日），供计费页进度条算「已用占比」——
+    前端不猜套餐总额，一切数字以后端账本为准。
     """
+    now = now or _utcnow()
     expire_subscriptions(now)
     try:
         sweep_stale_reservations(config.BILLING_RESERVATION_STALE_SECONDS)
@@ -315,17 +319,33 @@ def get_balance(user_id: int, *, now: str | None = None) -> dict[str, Any]:
         conn.row_factory = sqlite3.Row
         account = billing_repo.get_account(conn, user_id)
         ledger = billing_repo.list_ledger_for_user(conn, user_id, 20)
+        active_sub = next(
+            (
+                sub
+                for sub in billing_repo.list_subscriptions(conn, user_id)
+                if sub["status"] == "active" and sub["period_end"] > now
+            ),
+            None,
+        )
     account = account or {
         "plan_available_micro": 0,
         "plan_reserved_micro": 0,
         "prepaid_available_micro": 0,
         "prepaid_reserved_micro": 0,
     }
+    plan_snapshot = None
+    if active_sub is not None:
+        plan_snapshot = {
+            "plan": active_sub["plan"],
+            "included_credits": str(micro_to_credits(active_sub["included_credits_micro"])),
+            "period_end": active_sub["period_end"],
+        }
     return {
         "plan_credits": str(micro_to_credits(account["plan_available_micro"])),
         "prepaid_credits": str(micro_to_credits(account["prepaid_available_micro"])),
         "plan_reserved_credits": str(micro_to_credits(account["plan_reserved_micro"])),
         "prepaid_reserved_credits": str(micro_to_credits(account["prepaid_reserved_micro"])),
+        "plan_snapshot": plan_snapshot,
         "recent_ledger": [
             {
                 "type": entry["type"],

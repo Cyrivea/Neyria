@@ -9,11 +9,18 @@ export interface LedgerEntry {
   created_at: string
 }
 
+export interface PlanSnapshot {
+  plan: string
+  included_credits: string
+  period_end: string
+}
+
 export interface BalanceData {
   plan_credits: string
   prepaid_credits: string
   plan_reserved_credits: string
   prepaid_reserved_credits: string
+  plan_snapshot: PlanSnapshot | null
   recent_ledger: LedgerEntry[]
 }
 

@@ -19,11 +19,20 @@ class LedgerEntryView(BaseModel):
     created_at: str
 
 
+class PlanSnapshotView(BaseModel):
+    """当前生效套餐快照：计费页「已用/总额」进度条与到期日的唯一事实来源。"""
+
+    plan: str
+    included_credits: str
+    period_end: str
+
+
 class BalanceResponse(BaseModel):
     plan_credits: str
     prepaid_credits: str
     plan_reserved_credits: str
     prepaid_reserved_credits: str
+    plan_snapshot: PlanSnapshotView | None = None
     recent_ledger: list[LedgerEntryView]
 
 

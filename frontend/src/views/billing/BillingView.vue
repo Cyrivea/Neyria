@@ -29,13 +29,26 @@
       <!-- 额度总览 -->
       <section class="billing-overview" aria-label="额度总览">
         <div class="billing-stat-card">
-          <div class="billing-stat-label">套餐额度（可用）</div>
+          <div class="billing-stat-label">
+            套餐额度（可用）<span v-if="planSnapshot" class="billing-plan-name">
+              {{ planSnapshot.plan }}</span
+            >
+          </div>
           <div class="billing-stat-value">
             {{ balance?.plan_credits ?? '—' }}<span class="billing-stat-unit">积分</span>
           </div>
-          <div class="billing-stat-meta">
-            冻结中
-            {{ balance?.plan_reserved_credits ?? '0' }} 积分（在途生成任务占用，完成后多退少补）
+          <template v-if="planSnapshot">
+            <div class="billing-progress" role="presentation">
+              <div class="billing-progress-fill" :style="{ width: planUsedPercent + '%' }"></div>
+            </div>
+            <div class="billing-stat-meta">
+              已用 {{ planUsed }} / {{ planSnapshot.included_credits }} 积分 ｜
+              {{ planSnapshot.period_end.slice(0, 10) }} 到期；冻结中
+              {{ balance?.plan_reserved_credits ?? '0' }}（多退少补）
+            </div>
+          </template>
+          <div v-else class="billing-stat-meta">
+            当前无生效套餐；冻结中 {{ balance?.plan_reserved_credits ?? '0' }} 积分
           </div>
         </div>
         <div class="billing-stat-card">
@@ -134,7 +147,7 @@
  * 消费设置与升级/充值按钮仅作占位——后端支付与成本风控未上线（I7/I9），
  * 不做假交互，按钮直接置灰并注明状态。
  */
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   getBalance,
@@ -151,6 +164,22 @@ const loading = ref(false)
 const error = ref('')
 
 const ledger = ref<BalanceData['recent_ledger']>([])
+
+const planSnapshot = computed(() => balance.value?.plan_snapshot ?? null)
+/** 已用 = 总额 - 可用（冻结视为未消耗，结算后自然收拢）；数字全走后端账本，前端不猜。 */
+const planUsed = computed(() => {
+  const snap = planSnapshot.value
+  if (!snap || !balance.value) return '0'
+  const used = Number(snap.included_credits) - Number(balance.value.plan_credits)
+  return String(Math.max(0, Math.round(used * 1e6) / 1e6))
+})
+const planUsedPercent = computed(() => {
+  const snap = planSnapshot.value
+  if (!snap || !balance.value) return 0
+  const included = Number(snap.included_credits)
+  if (included <= 0) return 0
+  return Math.min(100, Math.round((Number(planUsed.value) / included) * 100))
+})
 
 const CAPABILITY_LABELS: Record<string, string> = {
   'lyrics.generate': '歌词生成',
@@ -336,6 +365,31 @@ onMounted(load)
   font-size: 34px;
   font-weight: 700;
   line-height: 1.1;
+}
+
+.billing-plan-name {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--text-secondary, #c9cdd6);
+  font-weight: 400;
+  vertical-align: 1px;
+}
+
+.billing-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+}
+
+.billing-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: #d0d0d0;
+  transition: width 300ms ease;
 }
 
 .billing-stat-unit {

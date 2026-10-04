@@ -513,6 +513,27 @@ def test_reconcile_passes_after_full_lifecycle(billing_db):
     assert reconcile_billing.main() == 0
 
 
+def test_balance_includes_active_plan_snapshot(billing_db):
+    """I8 尾活：余额接口必须出当前生效套餐快照（进度条的数据源），过期套餐不出。"""
+    # 无套餐时快照亮出为 None
+    assert billing_service.get_balance(billing_db)["plan_snapshot"] is None
+
+    billing_service.grant_plan_credits(billing_db, "creator", Decimal("100"), 30)
+    snap = billing_service.get_balance(billing_db)["plan_snapshot"]
+    assert snap is not None
+    assert snap["plan"] == "creator"
+    assert snap["included_credits"] == "100"
+    assert snap["period_end"] > datetime.now(UTC).isoformat()
+
+    # 套餐到期后（凭 expire 清扫翻过状态）不再出快照
+    with db_connection() as conn:
+        conn.execute(
+            "UPDATE subscriptions SET period_end=?",
+            ((datetime.now(UTC) - timedelta(days=1)).isoformat(),),
+        )
+    assert billing_service.get_balance(billing_db)["plan_snapshot"] is None
+
+
 def test_usage_summary_aggregates_by_capability(billing_db):
     """usage-summary 聚合：30 天窗口内按能力分流，金额取已结算的 billed_credits。"""
     from repositories import usage_repo
