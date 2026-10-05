@@ -126,8 +126,9 @@ async def _cheap_classify(
     history: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     """便宜 LLM 分类器：结构化输出。契约强制 {intent, confidence}。"""
-    from agents.neyria import client as llm_client
+    from services.llm import get_chat_client
 
+    llm_client = get_chat_client()
     if llm_client is None:
         return None
 
@@ -140,16 +141,15 @@ async def _cheap_classify(
         "confidence < 0.65 时把 intent 改为 unknown。不要输出任何其他内容。"
     )
     try:
-        response = await _to_thread(
-            llm_client.chat.completions.create,
+        intent_reply = await _to_thread(
+            llm_client.complete,
             model=config.CHAT_MODEL,
             messages=[
                 {"role": "system", "content": sys_prompt},
                 {"role": "user", "content": message},
             ],
-            stream=False,
         )
-        text = response.choices[0].message.content if response.choices else None
+        text = intent_reply.content
         if not text:
             return None
         obj = json.loads(text.strip().replace("```json", "").replace("```", "").strip())

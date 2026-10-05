@@ -1,9 +1,11 @@
-from zhipuai import ZhipuAI
+"""历史兼容模块：system prompt 装配。
+
+LLM client 已于 2026-10-03 迁移到 ``services/llm``（C12 抽象层）：
+这里不再直接构造任何 Provider SDK。要拿 client 请走
+``services.llm.get_chat_client()``。
+"""
 
 from agents.prompt_loader import build_base_prompt
-from core.config import API_KEY
-
-client = ZhipuAI(api_key=API_KEY) if API_KEY else None
 
 
 def build_system_prompt(profile: str, context: str) -> str:

@@ -35,7 +35,10 @@ for _k in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"):
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agents.neyria import build_system_prompt, client
+from agents.neyria import build_system_prompt
+from services.llm import get_chat_client
+
+client = get_chat_client()
 from services.chat.chat_orchestrator import _tools_for_context
 
 RESULT_FILE = Path(__file__).resolve().parents[1] / "eval_intent_result.json"
@@ -567,17 +570,15 @@ def run_turn(
             reply_text = "[dry]完成"
             break
 
-        response = client.chat.completions.create(
+        reply = client.complete(
             model=model,
             messages=messages,
             tools=tools_schema,
-            stream=False,
         )
-        choice = response.choices[0]
-        message = choice.message
-        tool_calls = getattr(message, "tool_calls", None) or []
-        content = getattr(message, "content", "") or ""
+        tool_calls = reply.tool_calls
+        content = reply.content or ""
 
+        tool_calls = [tc for tc in tool_calls if tc.id and tc.name]
         if tool_calls:
             messages.append(
                 {
@@ -587,21 +588,21 @@ def run_turn(
                         {
                             "id": tc.id,
                             "type": "function",
-                            "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                            "function": {"name": tc.name, "arguments": tc.arguments},
                         }
                         for tc in tool_calls
                     ],
                 }
             )
             for tc in tool_calls:
-                args = json.loads(tc.function.arguments or "{}")
-                result = fake_tool_exec(canvas, tc.function.name, args, user_text)
-                calls.append({"name": tc.function.name, "args": args, "result": result})
+                args = json.loads(tc.arguments or "{}")
+                result = fake_tool_exec(canvas, tc.name, args, user_text)
+                calls.append({"name": tc.name, "args": args, "result": result})
                 messages.append(
                     {
                         "role": "tool",
                         "content": json.dumps(result, ensure_ascii=False),
-                        "tool_call_id": tc.id,
+                        "tool_call_id": tc.id or "",
                     }
                 )
             continue

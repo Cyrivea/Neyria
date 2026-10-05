@@ -38,6 +38,9 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 30
 API_KEY = os.getenv("API_KEY", "").strip()
 # 聊天主模型与歌词生产模型统一走环境变量；换 Provider 时只改配置不动代码。
+# LLM_PROVIDER 选择 services/llm/factory.py 注册的适配器（目前仅 zhipu，
+# 新增 Provider = 实现 ChatClient 协议 + 注册一行，见 C12 / solved.md）。
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "zhipu").strip()
 CHAT_MODEL = os.getenv("CHAT_MODEL", "glm-4-flash").strip()
 LYRICS_MODEL = os.getenv("LYRICS_MODEL", "glm-4-flash").strip()
 # 图像走 SiliconFlow Kolors（中文友好；该账号 FLUX 被禁用）

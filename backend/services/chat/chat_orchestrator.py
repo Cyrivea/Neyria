@@ -22,7 +22,6 @@ from typing import Any
 from fastapi import HTTPException
 from starlette.concurrency import iterate_in_threadpool
 
-from agents.neyria import client
 from agents.tools.registry import tools_map, tools_schema
 from core import config
 from core.injection_guard import (
@@ -37,7 +36,12 @@ from services.capabilities import CapabilityContext, use_capability_context
 from services.chat.context_builder import build_chat_context
 from services.chat.intent_classifier import classify as classify_intent
 from services.chat.tool_executor import ToolOutcome, execute_tool
+from services.llm import StreamDelta, ToolCallDelta, get_chat_client
 from services.workflow_service import reset_canvas_read_stamp
+
+# C12：不再直接碰 Provider SDK。client 走抽象工厂（默认 zhipu，LLM_PROVIDER 可换），
+# 模块级赋值保住测试 mock 面（monkeypatch chat_orchestrator.client）。
+client: Any = get_chat_client()
 
 # 模型名统一走环境变量（config.CHAT_MODEL），不在代码里写死
 CHAT_MODEL = config.CHAT_MODEL
@@ -52,6 +56,10 @@ TOOL_SKIPPED_RESULT = "已超出单轮工具调用数量上限，本次调用未
 HOLLOW_CLAIM_NOTICE = (
     "你刚才声称已经执行了画布/工作流操作，但实际上一个工具都没有调用。"
     "要么立刻调用相应 Workflow 工具真正执行，要么明确告诉用户你无法执行，绝不许空谈。"
+)
+SAME_ERROR_SHORT_CIRCUIT_NOTICE = (
+    "同一个工具以同样的原因连续失败了两次。不要再用相同调用重试，"
+    "换一条路径或如实告诉用户该操作当前不可用，并给出可以替代的选项。"
 )
 
 # 声明动作的谓词（模型空谈时喜欢说的话） + 创作请求的动词（过滤纯解释性回答）
@@ -153,33 +161,21 @@ def split_ui_events(result_text: str) -> tuple[str, list[dict]]:
     return json.dumps(payload, ensure_ascii=False), events
 
 
-def extract_stream_content(chunk) -> str:
-    if not chunk.choices:
-        return ""
-
-    delta = chunk.choices[0].delta
-    return delta.content if hasattr(delta, "content") and delta.content else ""
-
-
-def merge_tool_call_delta(pending: dict[int, dict], delta_calls) -> None:
+def merge_tool_call_delta(pending: dict[int, dict], delta_calls: list[ToolCallDelta]) -> None:
     """把流式分片按 index 聚合成完整的 tool_calls。
 
     流式模式下一个工具调用会被拆成多个分片（id/name 先到，arguments 逐段追加），
-    多个并行调用靠分片上的 index 区分——旧代码只认 tool_calls[0]，多调用时
-    其余调用的参数会被错误拼接到第一个上。
+    多个并行调用靠分片上的 index 区分。入参已是抽象层归一化后的中立类型，
+    不再认识任何 Provider SDK 的 chunk 形状。
     """
     for tool_call in delta_calls:
-        index = getattr(tool_call, "index", None)
-        if index is None:
-            index = 0
-        slot = pending.setdefault(index, {"id": "", "name": "", "arguments": ""})
+        slot = pending.setdefault(tool_call.index, {"id": "", "name": "", "arguments": ""})
         if tool_call.id:
             slot["id"] = tool_call.id
-        if tool_call.function:
-            if tool_call.function.name:
-                slot["name"] = tool_call.function.name
-            if tool_call.function.arguments:
-                slot["arguments"] += tool_call.function.arguments
+        if tool_call.name:
+            slot["name"] = tool_call.name
+        if tool_call.arguments:
+            slot["arguments"] += tool_call.arguments
 
 
 def _sse(payload: dict) -> str:
@@ -340,6 +336,10 @@ async def _orchestrate(
     tools_used: list[str] = []
     # 真实回执需要“谁成谁败”：记录每次工具调用的结果单摘要
     tool_outcomes: list[dict] = []
+    # C13 同错短路：同一 (工具, 错误类别) 失败计数；达到阈值后从本轮后续
+    # 可用工具中摘除该工具，并向模型发明确的停手指令——修复死循环重试
+    tool_failure_counts: dict[tuple[str, str], int] = {}
+    short_circuited_tools: set[str] = set()
     tool_rounds = 0
     hollow_claim_corrected = False
     force_tool_choice_once = False
@@ -386,35 +386,35 @@ async def _orchestrate(
                 # 走到这里说明前面每一轮模型都在要工具：明示上限，逼出最终回答
                 messages.append({"role": "system", "content": TOOL_LIMIT_NOTICE})
 
-            request_kwargs: dict = {"model": CHAT_MODEL, "messages": messages, "stream": True}
+            # C12：抽象层接口——归一化 StreamDelta 流，不再碰 SDK chunk 形状；
+            # 返回的句柄可 close（中断时停上游计费）。空谈纠错轮强制 tool_choice=required。
+            # kwargs 里不放 None 值的键：收尾轮「不给工具」在请求记录里必须体现为
+            # 无 tools 键——既与旧行为一致，也让 "tools" not in call 的测试断言保持真实。
+            stream_kwargs: dict = {"model": CHAT_MODEL, "messages": messages}
             if allow_tools:
-                request_kwargs["tools"] = available_tools
+                stream_kwargs["tools"] = available_tools
                 if force_tool_choice_once:
-                    # 空谈纠错轮：本轮必须至少调用一个工具（实测 GLM-flash 在污染
-                    # 历史下不给强制会再次空谈）
-                    request_kwargs["tool_choice"] = "required"
+                    stream_kwargs["tool_choice"] = "required"
                     force_tool_choice_once = False
-            stream = await asyncio.to_thread(client.chat.completions.create, **request_kwargs)
+            stream = await asyncio.to_thread(client.stream, **stream_kwargs)
 
             pending_tool_calls: dict[int, dict] = {}
             textual_tool_candidate = ""
             # 兼容少数模型/代理把 function calling 错误降级成普通文本的情况。
             # 只暂存“像工具名开头”的前缀，普通回答仍逐 chunk 流出。
-            async for chunk in iterate_in_threadpool(stream):
-                if not chunk.choices:
+            async for delta in iterate_in_threadpool(stream):
+                if not isinstance(delta, StreamDelta):
                     continue
-                delta = chunk.choices[0].delta
-                delta_calls = getattr(delta, "tool_calls", None)
-                if delta_calls:
+                if delta.tool_calls:
                     if textual_tool_candidate:
                         fallback_call = parse_textual_tool_call(textual_tool_candidate)
                         if not fallback_call:
                             reply += textual_tool_candidate
                             yield _sse({"type": "content", "content": textual_tool_candidate})
                         textual_tool_candidate = ""
-                    merge_tool_call_delta(pending_tool_calls, delta_calls)
+                    merge_tool_call_delta(pending_tool_calls, delta.tool_calls)
                     continue
-                content = extract_stream_content(chunk)
+                content = delta.content
                 if content:
                     if textual_tool_candidate:
                         textual_tool_candidate += content
@@ -516,6 +516,26 @@ async def _orchestrate(
                 tools_used.append(call["name"])
                 tool_outcomes.append(_summarize_tool_outcome(call["name"], outcome, model_result))
                 messages.append({"role": "tool", "content": model_result, "tool_call_id": call["id"]})
+                # C13：同类失败 ≥2 次后同错短路——让模型无法在本轮继续重试同一调用
+                if not outcome.ok and outcome.error_kind:
+                    key = (call["name"], outcome.error_kind)
+                    tool_failure_counts[key] = tool_failure_counts.get(key, 0) + 1
+                    if tool_failure_counts[key] >= 2 and call["name"] not in short_circuited_tools:
+                        short_circuited_tools.add(call["name"])
+                        available_tools = [
+                            t
+                            for t in available_tools
+                            if t.get("function", {}).get("name") != call["name"]
+                        ]
+                        messages.append({"role": "system", "content": SAME_ERROR_SHORT_CIRCUIT_NOTICE})
+                        logger.warning(
+                            "同类工具失败达到阈值，本轮摘除该工具",
+                            extra={
+                                "evt": "tool_short_circuit",
+                                "tool": call["name"],
+                                "error_kind": outcome.error_kind,
+                            },
+                        )
 
         tool_used = tools_used[-1] if tools_used else None
 
@@ -651,8 +671,8 @@ async def _generate_followups(user_message: str, reply: str) -> list[str]:
     if not reply.strip():
         return []
     try:
-        response = await asyncio.to_thread(
-            client.chat.completions.create,
+        followup_reply = await asyncio.to_thread(
+            client.complete,
             model=config.CHAT_MODEL,
             messages=[
                 {"role": "system", "content": _FOLLOWUP_SYSTEM},
@@ -663,7 +683,7 @@ async def _generate_followups(user_message: str, reply: str) -> list[str]:
             ],
             max_tokens=150,
         )
-        raw = (response.choices[0].message.content or "").strip()
+        raw = (followup_reply.content or "").strip()
         # 模型偶尔用 ```json 围栏包裹，剥掉再解析；找不到数组就放弃
         if "```" in raw:
             raw = raw.split("```")[1] if raw.count("```") >= 2 else raw.strip("`")

@@ -19,6 +19,7 @@ from repositories.chat_repo import (
     set_feedback,
     truncate_from_message,
 )
+from services.llm import ChatReply, StreamDelta
 
 MESSAGES_DDL = """
 CREATE TABLE messages (
@@ -122,49 +123,40 @@ def test_append_message_returns_row_id(fresh_db):
 
 
 def content_stream(*texts):
-    class _Delta:
-        def __init__(self, content):
-            self.content = content
-            self.tool_calls = None
-
-    class _Choice:
-        def __init__(self, delta):
-            self.delta = delta
-
-    class _Chunk:
-        def __init__(self, content):
-            self.choices = [_Choice(_Delta(content))]
-
-    return [_Chunk(t) for t in texts]
+    """C12 后的假流：直接产出抽象层中立类型 StreamDelta。"""
+    return [StreamDelta(content=t) for t in texts]
 
 
-class _Message:
-    def __init__(self, content):
-        self.content = content
+class FakeStream:
+    def __init__(self, deltas):
+        self._deltas = deltas
 
+    def __iter__(self):
+        return iter(self._deltas)
 
-class _Resp:
-    def __init__(self, content):
-        self.choices = [type("Choice", (), {"message": _Message(content)})()]
+    def close(self):
+        pass
 
 
 class FakeClient:
-    """script 项为 str=流式回复；dict=followups 原始返回（或 Exception 实例=抛错）。"""
+    """C12 后的测试双。script 项为 str=流式回复；Exception 实例=非流式追问时抛错。"""
 
     def __init__(self, script):
         self.calls = []
         self._script = list(script)
-        self.chat = self
-        self.completions = self
 
-    def create(self, **kwargs):
+    def stream(self, **kwargs):
+        self.calls.append(kwargs)
+        return FakeStream(content_stream(self._script.pop(0)))
+
+    def complete(self, **kwargs):
         self.calls.append(kwargs)
         item = self._script.pop(0)
         if isinstance(item, Exception):
             raise item
-        if isinstance(item, dict):  # 追问建议的非流式响应
-            return _Resp(item["content"])
-        return iter(content_stream(item))
+        if isinstance(item, dict):  # 追问建议返回体：{"content": "[...]"}
+            return ChatReply(content=item["content"])
+        return ChatReply(content=str(item))
 
 
 def _run_collect(user_message, **kwargs):

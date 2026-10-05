@@ -12,41 +12,13 @@ import pytest
 from services.chat import chat_orchestrator
 from services.chat.context_builder import ChatContext
 from services.chat.tool_executor import ToolOutcome
+from services.llm import ChatReply, StreamDelta, ToolCallDelta
 
-# ---------- 假流式分片 ----------
-
-
-class _Func:
-    def __init__(self, name=None, arguments=None):
-        self.name = name
-        self.arguments = arguments
-
-
-class _ToolCallDelta:
-    def __init__(self, index=0, id=None, name=None, arguments=None):
-        self.index = index
-        self.id = id
-        self.function = _Func(name, arguments)
-
-
-class _Delta:
-    def __init__(self, content=None, tool_calls=None):
-        self.content = content
-        self.tool_calls = tool_calls
-
-
-class _Choice:
-    def __init__(self, delta):
-        self.delta = delta
-
-
-class _Chunk:
-    def __init__(self, content=None, tool_calls=None):
-        self.choices = [_Choice(_Delta(content, tool_calls))]
+# ---------- 假流式分片（C12 后：直接构造抽象层中立类型） ----------
 
 
 def content_stream(*texts):
-    return [_Chunk(content=t) for t in texts]
+    return [StreamDelta(content=t) for t in texts]
 
 
 def tool_call_stream(*calls):
@@ -54,23 +26,46 @@ def tool_call_stream(*calls):
     chunks = []
     for index, call_id, name, arguments in calls:
         half = len(arguments) // 2
-        chunks.append(_Chunk(tool_calls=[_ToolCallDelta(index, call_id, name, arguments[:half])]))
-        chunks.append(_Chunk(tool_calls=[_ToolCallDelta(index, None, None, arguments[half:])]))
+        chunks.append(
+            StreamDelta(tool_calls=[ToolCallDelta(index=index, id=call_id, name=name, arguments=arguments[:half])])
+        )
+        chunks.append(StreamDelta(tool_calls=[ToolCallDelta(index=index, arguments=arguments[half:])]))
     return chunks
 
 
+class FakeStream:
+    """C12 后的测试流：LLMStream 协议（可迭代 + close）。"""
+
+    def __init__(self, deltas):
+        self._deltas = deltas
+        self.closed = False
+
+    def __iter__(self):
+        return iter(self._deltas)
+
+    def close(self):
+        self.closed = True
+
+
 class FakeClient:
-    """按剧本逐次回放流；记录每次请求的 kwargs 供断言。"""
+    """C12 后的测试双：实现 ChatClient 协议（stream/complete），不再仿智谱 SDK 链。
+    按剧本逐次回放流；记录每次请求的 kwargs 供断言。"""
 
     def __init__(self, script):
         self.script = list(script)
         self.calls: list[dict] = []
-        self.chat = self
-        self.completions = self
+        self.streams: list[FakeStream] = []
 
-    def create(self, **kwargs):
+    def stream(self, **kwargs):
         self.calls.append(kwargs)
-        return iter(self.script.pop(0))
+        handle = FakeStream(self.script.pop(0))
+        self.streams.append(handle)
+        return handle
+
+    def complete(self, **kwargs):
+        self.calls.append(kwargs)
+        return ChatReply(content="[]")
+
 
 
 # ---------- 公共脚手架 ----------
@@ -297,6 +292,65 @@ def test_per_round_tool_call_cap(monkeypatch, persisted):
     assert len(tool_messages) == cap + 2  # 但每个 tool_call_id 都有应答（协议要求）
     skipped = [m for m in tool_messages if m["content"] == chat_orchestrator.TOOL_SKIPPED_RESULT]
     assert len(skipped) == 2
+
+
+def test_same_error_short_circuits_after_two_failures(monkeypatch, persisted):
+    """C13：同一工具以同一错误类别连续失败两次，后续轮次该工具从可用工具面摘除，
+    且模型收到明确的停手 system note——不许死循环烧 token。"""
+
+    async def always_timeout(func_name, func_args):
+        return ToolOutcome(result="超时", ok=False, error_kind="timeout")
+
+    # 中立化意图分类：不要让它把「hi」判成闲聊而收窄工具面，干扰本用例观察对象
+    async def neutral_classify(*args, **kwargs):
+        return {"intent": "unknown", "allow_tools": None}
+
+    monkeypatch.setattr(chat_orchestrator, "classify_intent", neutral_classify)
+    monkeypatch.setattr(chat_orchestrator, "execute_tool", always_timeout)
+    fake, events = run_chat(
+        monkeypatch,
+        [
+            tool_call_stream((0, "c1", "calculate", '{"expression": "1+1"}')),
+            tool_call_stream((0, "c2", "calculate", '{"expression": "2+2"}')),
+            tool_call_stream((0, "c3", "calculate", '{"expression": "3+3"}')),
+            content_stream("算了还是直接说吧"),
+        ],
+    )
+
+    # 第一、二轮可用工具面含 calculate；第三轮起被摘除
+    first_tools = {t["function"]["name"] for t in fake.calls[0]["tools"]}
+    assert "calculate" in first_tools
+    third_ones = fake.calls[2]
+    third_tools = {t["function"]["name"] for t in third_ones.get("tools", [])}
+    assert "calculate" not in third_tools
+    # 停手指令已进入消息轨
+    sys_notes = [m["content"] for m in fake.calls[2]["messages"] if m["role"] == "system"]
+    assert chat_orchestrator.SAME_ERROR_SHORT_CIRCUIT_NOTICE in sys_notes
+
+
+def test_distinct_error_kinds_do_not_short_circuit(monkeypatch, persisted):
+    """C13：不同错误类别不算同错——模型换路径重试是合法行为，不该被误摘。"""
+    kinds = iter(["timeout", "business_denied", "timeout"])
+
+    async def mixed_fail(func_name, func_args):
+        return ToolOutcome(result="失败", ok=False, error_kind=next(kinds))
+
+    async def neutral_classify(*args, **kwargs):
+        return {"intent": "unknown", "allow_tools": None}
+
+    monkeypatch.setattr(chat_orchestrator, "classify_intent", neutral_classify)
+    monkeypatch.setattr(chat_orchestrator, "execute_tool", mixed_fail)
+    fake, _events = run_chat(
+        monkeypatch,
+        [
+            tool_call_stream((0, "c1", "calculate", '{"expression": "1+1"}')),
+            tool_call_stream((0, "c2", "calculate", '{"expression": "2+2"}')),
+            tool_call_stream((0, "c3", "calculate", '{"expression": "3+3"}')),
+            content_stream("done"),
+        ],
+    )
+    third_tools = {t["function"]["name"] for t in fake.calls[2]["tools"]}
+    assert "calculate" in third_tools  # 类别不同，不触短路
 
 
 def test_textual_tool_call_is_converted_instead_of_shown(monkeypatch, persisted):

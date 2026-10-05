@@ -13,6 +13,7 @@ from fastapi import HTTPException
 import core.database
 import services.chat.chat_orchestrator as chat_orchestrator
 from repositories.chat_repo import list_history, pop_last_turn
+from services.llm import ChatReply, StreamDelta
 
 # ---------- 仓库层：pop_last_turn 语义 ----------
 
@@ -77,36 +78,35 @@ def test_pop_last_turn_refuses_when_tail_has_notice(fresh_db):
 
 
 def content_stream(*texts):
-    """与真实 SDK 同形状的假流：chunk.choices[0].delta.content。
-    （初版只造了裸 delta，orchestrator 后来加了 `if not chunk.choices` 守卫后假件露馅）
-    """
+    """C12 后的假流：直接产出抽象层中立类型 StreamDelta。"""
+    return [StreamDelta(content=t) for t in texts]
 
-    class _Delta:
-        def __init__(self, content):
-            self.content = content
-            self.tool_calls = None
 
-    class _Choice:
-        def __init__(self, delta):
-            self.delta = delta
+class FakeStream:
+    def __init__(self, deltas):
+        self._deltas = deltas
 
-    class _Chunk:
-        def __init__(self, content):
-            self.choices = [_Choice(_Delta(content))]
+    def __iter__(self):
+        return iter(self._deltas)
 
-    return [_Chunk(t) for t in texts]
+    def close(self):
+        pass
 
 
 class FakeClient:
+    """C12 后的测试双：实现 ChatClient 协议（stream/complete），不再仿智谱 SDK 链。"""
+
     def __init__(self, script):
         self.calls = []
         self._script = list(script)
-        self.chat = self
-        self.completions = self
 
-    def create(self, **kwargs):
+    def stream(self, **kwargs):
         self.calls.append(kwargs)
-        return iter(self._script.pop(0))
+        return FakeStream(self._script.pop(0))
+
+    def complete(self, **kwargs):
+        self.calls.append(kwargs)
+        return ChatReply(content="[]")
 
 
 def run_chat(user_message, regenerate):

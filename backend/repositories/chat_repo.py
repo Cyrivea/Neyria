@@ -28,6 +28,7 @@ def append_message(
                 1 if interrupted else 0,
             ),
         )
+        assert cursor.lastrowid is not None  # INSERT 刚成功必有 rowid
         return int(cursor.lastrowid)
 
 
