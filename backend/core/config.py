@@ -125,6 +125,10 @@ BILLING_SWEEP_INTERVAL_SECONDS = int(os.getenv("BILLING_SWEEP_INTERVAL_SECONDS",
 # ===== 工具执行超时（秒）：超过即中断并回给模型一条明确的超时结果 =====
 TOOL_TIMEOUT_SECONDS = int(os.getenv("TOOL_TIMEOUT_SECONDS", "120"))
 
+# G5-② LLM Provider 显式超时：聊天/意图分类/追问等 SDK 调用不再吃 SDK 默认值，
+# 上游挂起最多等这么久即由适配器抛超时（走既有异常→用户可见的转圈永绝后患）。
+LLM_REQUEST_TIMEOUT_SECONDS = float(os.getenv("LLM_REQUEST_TIMEOUT_SECONDS", "120"))
+
 # ===== E3 持久化任务 Worker =====
 JOB_LEASE_SECONDS = int(os.getenv("JOB_LEASE_SECONDS", "60"))
 JOB_MAX_ATTEMPTS = int(os.getenv("JOB_MAX_ATTEMPTS", "3"))

@@ -307,7 +307,7 @@ def test_same_error_short_circuits_after_two_failures(monkeypatch, persisted):
 
     monkeypatch.setattr(chat_orchestrator, "classify_intent", neutral_classify)
     monkeypatch.setattr(chat_orchestrator, "execute_tool", always_timeout)
-    fake, events = run_chat(
+    fake, _events = run_chat(
         monkeypatch,
         [
             tool_call_stream((0, "c1", "calculate", '{"expression": "1+1"}')),

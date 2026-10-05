@@ -48,9 +48,13 @@ class ZhipuChatClient:
     """智谱 ChatClient 实现；api_key 由 factory 注入。"""
 
     def __init__(self, api_key: str) -> None:
+        # 命中在适配器层统一御守：SDK 构造即携带墙钟上限
         from zhipuai import ZhipuAI
 
-        self._sdk = ZhipuAI(api_key=api_key)
+        from core import config
+
+        self._apitimeout = float(config.LLM_REQUEST_TIMEOUT_SECONDS)
+        self._sdk = ZhipuAI(api_key=api_key, timeout=self._apitimeout)
 
     def stream(
         self,
@@ -60,7 +64,12 @@ class ZhipuChatClient:
         tools: list[dict] | None = None,
         tool_choice: str | None = None,
     ) -> LLMStream:
-        kwargs: dict[str, Any] = {"model": model, "messages": messages, "stream": True}
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "stream": True,
+            "timeout": self._apitimeout,
+        }
         if tools is not None:
             kwargs["tools"] = tools
         if tool_choice is not None:
@@ -75,7 +84,12 @@ class ZhipuChatClient:
         tools: list[dict] | None = None,
         max_tokens: int | None = None,
     ) -> ChatReply:
-        kwargs: dict[str, Any] = {"model": model, "messages": messages, "stream": False}
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "timeout": self._apitimeout,
+        }
         if tools is not None:
             kwargs["tools"] = tools
         if max_tokens is not None:
