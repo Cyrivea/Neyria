@@ -24,10 +24,19 @@ MAX_TOOL_ARG_LENGTH = 500
 
 @dataclass
 class ToolOutcome:
-    """工具执行的"结果单"。result 是给模型看的文本，ok 只用于日志/埋点。"""
+    """工具执行的"结果单"。result 是给模型看的文本，ok 用于日志/埋点；
+
+    error_kind（C13）是失败的结构化分类，编排器靠它识别「同错重试」：
+    - None：成功
+    - "rejected"：参数/报文不合法被拒
+    - "business_denied"：平台业务规则拒绝（携带可执行纠正指令）
+    - "timeout"：墙钟超时
+    - "exception:<Type>"：执行抛异常
+    """
 
     result: str
     ok: bool
+    error_kind: str | None = None
 
 
 def validate_tool_call(func_name: str, func_args: dict) -> str | None:
@@ -55,7 +64,7 @@ async def execute_tool(func_name: str, func_args_raw: str) -> ToolOutcome:
             error,
             extra={"evt": "tool_rejected", "tool": func_name, "reason": error},
         )
-        return ToolOutcome(result=f"工具调用被拒绝：{error}", ok=False)
+        return ToolOutcome(result=f"工具调用被拒绝：{error}", ok=False, error_kind="rejected")
 
     started = time.perf_counter()
     try:
@@ -83,6 +92,7 @@ async def execute_tool(func_name: str, func_args_raw: str) -> ToolOutcome:
             result=f"工具 {func_name} 执行超过 {config.TOOL_TIMEOUT_SECONDS} 秒上限已被中断，"
             "请明确告诉用户本次操作超时、请稍后重试或换个问法。",
             ok=False,
+            error_kind="timeout",
         )
     except AppError as exc:
         # 业务拒绝（如“引用上游却没连线”）：detail 是给模型的可执行纠正指令，
@@ -92,7 +102,7 @@ async def execute_tool(func_name: str, func_args_raw: str) -> ToolOutcome:
             func_name,
             extra={"evt": "tool_rejected_business", "tool": func_name, "detail": exc.detail},
         )
-        return ToolOutcome(result=f"操作被平台规则拒绝：{exc.detail}", ok=False)
+        return ToolOutcome(result=f"操作被平台规则拒绝：{exc.detail}", ok=False, error_kind="business_denied")
     except Exception as exc:
         logger.exception(
             "工具执行失败: %s",
@@ -104,7 +114,11 @@ async def execute_tool(func_name: str, func_args_raw: str) -> ToolOutcome:
                 "duration_ms": round((time.perf_counter() - started) * 1000, 1),
             },
         )
-        return ToolOutcome(result="工具执行失败，请换个方式提问或稍后重试。", ok=False)
+        return ToolOutcome(
+            result="工具执行失败，请换个方式提问或稍后重试。",
+            ok=False,
+            error_kind=f"exception:{type(exc).__name__}",
+        )
 
     logger.info(
         "工具调用完成",
