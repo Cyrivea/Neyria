@@ -88,9 +88,7 @@ INTENT_CLASSIFIER_ENABLED = os.getenv("INTENT_CLASSIFIER_ENABLED", "on").strip()
 
 # 追问建议（UI2-③）：回复完成后用同模型补记 2~3 条后续方向。多一次便宜的短调用，
 # 失败静默降级为空列表；off 用于压测或成本收紧场景。
-FOLLOWUP_SUGGESTIONS_ENABLED = (
-    os.getenv("FOLLOWUP_SUGGESTIONS_ENABLED", "on").strip().lower() != "off"
-)
+FOLLOWUP_SUGGESTIONS_ENABLED = os.getenv("FOLLOWUP_SUGGESTIONS_ENABLED", "on").strip().lower() != "off"
 
 # ===== 注入语义层（C25 定标，2026-10-03 实测数据见 solved.md 第 108 条）=====
 # bge-m3 上良性短句能冲到 0.681、真注入最低 0.749，旧阈值 0.62 正好压在良性段中间。
@@ -128,6 +126,15 @@ TOOL_TIMEOUT_SECONDS = int(os.getenv("TOOL_TIMEOUT_SECONDS", "120"))
 # G5-② LLM Provider 显式超时：聊天/意图分类/追问等 SDK 调用不再吃 SDK 默认值，
 # 上游挂起最多等这么久即由适配器抛超时（走既有异常→用户可见的转圈永绝后患）。
 LLM_REQUEST_TIMEOUT_SECONDS = float(os.getenv("LLM_REQUEST_TIMEOUT_SECONDS", "120"))
+
+# C26/C27 建流韧性：SDK 自带指数退避重试是日志盲区（日志只打 Retrying in Ns 不带原因），
+# 且默认 max_retries=3 叠加 120s 超时会拖垮前端看门狗——故关闭 SDK 重试（适配器层自建）。
+# LLM_MAX_RETRIES = 首次失败后的额外尝试次数（默认 1，即瞬态故障共 2 次机会）；
+# LLM_STREAM_TIMEOUT_SECONDS = 流式单次尝试墙钟（默认 60，与前端空闲看门狗同档，
+# 卡死必然在 60s 内被判出来）；LLM_RETRY_BACKOFF_SECONDS = 退避基数（线性+抖动）。
+LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "1"))
+LLM_STREAM_TIMEOUT_SECONDS = float(os.getenv("LLM_STREAM_TIMEOUT_SECONDS", "60"))
+LLM_RETRY_BACKOFF_SECONDS = float(os.getenv("LLM_RETRY_BACKOFF_SECONDS", "1.5"))
 
 # ===== E3 持久化任务 Worker =====
 JOB_LEASE_SECONDS = int(os.getenv("JOB_LEASE_SECONDS", "60"))

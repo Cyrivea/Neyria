@@ -84,6 +84,8 @@ def _claims_action_without_tools(message: str, reply: str, tools_used: list[str]
         return False
     # 配了但没跑：只要出现执行语谓词就算空谈
     return any(hint in reply for hint in _ACTION_CLAIM_HINTS)
+
+
 WEB_SEARCH_TOOL_NAME = "search_web"
 TEXT_TOOL_CALL_MAX_LENGTH = 1200
 
@@ -138,14 +140,12 @@ def _tools_for_context(has_knowledge_context: bool) -> list[dict]:
         return [
             tool
             for tool in tools_schema
-            if tool.get("function", {}).get("name") not in {WEB_SEARCH_TOOL_NAME}
-            | direct_capability_tools
+            if tool.get("function", {}).get("name") not in {WEB_SEARCH_TOOL_NAME} | direct_capability_tools
         ]
     return [
         tool
         for tool in tools_schema
-        if tool.get("function", {}).get("name") not in {"get_current_time"}
-        | direct_capability_tools
+        if tool.get("function", {}).get("name") not in {"get_current_time"} | direct_capability_tools
     ]
 
 
@@ -198,9 +198,7 @@ _TOOL_DISPLAY_NAMES = {
 }
 
 # 用户可见文本里的工具名→中文标签映射；不在表里的工具一律显示为「系统工具」
-_TOOL_NAME_LABELS = {
-    name: _TOOL_DISPLAY_NAMES.get(name, "系统工具") for name in tools_map
-}
+_TOOL_NAME_LABELS = {name: _TOOL_DISPLAY_NAMES.get(name, "系统工具") for name in tools_map}
 
 
 class _ToolNameScrubber:
@@ -290,13 +288,12 @@ async def stream_chat(
 
     SSE 响应头发出后全局异常 handler 就管不到了（无法再发 500），生成器里的
     异常只会表现为前端断流。这里统一兼做：记结构化错误日志 + 向前端发一条
-    error 事件体面收尾（前端对未知类型静默忽略，兼容旧版本）。
+    error 事件体面收尾。事件面（C27 起）：heartbeat/content/tool/workflow_snapshot/
+    suggestions/done/error；前端未识别的类型只警告丢弃，不打断流（B4 语义）。
     """
     started = time.perf_counter()
     try:
-        async for event in _orchestrate(
-            user, message, project_id, attachments, regenerate, edit_from_id
-        ):
+        async for event in _orchestrate(user, message, project_id, attachments, regenerate, edit_from_id):
             yield event
     except HTTPException:
         raise
@@ -342,9 +339,7 @@ async def _orchestrate(
     # 当作改写后的新问题重新落库。删除范围包含后续 user 消息，前端已在确认框里
     # 向用户明示丢失数量；编辑操作不可撤销，不做软删。
     if edit_from_id is not None:
-        truncated = await asyncio.to_thread(
-            truncate_from_message, user["id"], project_id, edit_from_id
-        )
+        truncated = await asyncio.to_thread(truncate_from_message, user["id"], project_id, edit_from_id)
         if not truncated:
             raise HTTPException(
                 status_code=409,
@@ -352,6 +347,9 @@ async def _orchestrate(
             )
 
     chat_started = time.perf_counter()
+    # C27：开工即回心跳——后端已接单活着的证据。前端收到后放宽首 token 看门狗，
+    # 上游偶发限速/重试自救窗口不再被 10s 杀头律误杀；卡死仍由 60s 空闲看门狗兑底。
+    yield _sse({"type": "heartbeat"})
     # 每轮对话独立重置“画布已读”印记：工具必须先读再改，跨轮不传递
     reset_canvas_read_stamp()
     ctx = await build_chat_context(user["id"], message, project_id, attachments)
@@ -377,9 +375,7 @@ async def _orchestrate(
         )
     elif intent_type == "chat":
         # 闲聊：断开工生产能力（骗局不重复言说）
-        available_tools = [
-            t for t in available_tools if t.get("function", {}).get("name") == "search_web"
-        ]
+        available_tools = [t for t in available_tools if t.get("function", {}).get("name") == "search_web"]
 
     reply = ""
     tools_used: list[str] = []
@@ -413,16 +409,13 @@ async def _orchestrate(
                 },
             )
             blocked_message = (
-                "我注意到这条消息包含了不合适的指令模式。"
-                "请你说明白你到底想要什么，我可以帮你正常做。"
+                "我注意到这条消息包含了不合适的指令模式。请你说明白你到底想要什么，我可以帮你正常做。"
             )
             # C19-④：拦截也要落库——审计需要会话痕迹，用户刷新后也不该“平空消失一轮”
             await asyncio.to_thread(
                 append_message, user["id"], "user", ctx.persist_text, project_id, ctx.attachments
             )
-            await asyncio.to_thread(
-                append_message, user["id"], "assistant", blocked_message, project_id
-            )
+            await asyncio.to_thread(append_message, user["id"], "assistant", blocked_message, project_id)
             blocked_history = [*ctx.clean_history, {"role": "assistant", "content": blocked_message}]
             yield _sse({"type": "content", "content": blocked_message})
             yield _sse({"type": "done", "history": blocked_history, "tool_used": None, "citations": []})
@@ -539,7 +532,9 @@ async def _orchestrate(
             for position, call in enumerate(tool_calls):
                 if position >= MAX_TOOL_CALLS_PER_ROUND:
                     # 超额调用不执行，但必须应答该 tool_call_id，否则下一轮请求非法
-                    messages.append({"role": "tool", "content": TOOL_SKIPPED_RESULT, "tool_call_id": call["id"]})
+                    messages.append(
+                        {"role": "tool", "content": TOOL_SKIPPED_RESULT, "tool_call_id": call["id"]}
+                    )
                     continue
                 if untrusted_ingress_seen and call["name"] in STATE_CHANGING_TOOLS:
                     # Rule of Two：搜索结果（可能埋指令）已入上下文，状态变更不执行，
@@ -586,9 +581,7 @@ async def _orchestrate(
                     if tool_failure_counts[key] >= 2 and call["name"] not in short_circuited_tools:
                         short_circuited_tools.add(call["name"])
                         available_tools = [
-                            t
-                            for t in available_tools
-                            if t.get("function", {}).get("name") != call["name"]
+                            t for t in available_tools if t.get("function", {}).get("name") != call["name"]
                         ]
                         messages.append({"role": "system", "content": SAME_ERROR_SHORT_CIRCUIT_NOTICE})
                         logger.warning(
@@ -679,9 +672,7 @@ async def _orchestrate(
             ctx.citations,
         )
     else:
-        assistant_row_id = await asyncio.to_thread(
-            append_message, user["id"], "assistant", reply, project_id
-        )
+        assistant_row_id = await asyncio.to_thread(append_message, user["id"], "assistant", reply, project_id)
     if assistant_row_id:
         assistant_history_item["id"] = assistant_row_id
 
@@ -723,7 +714,7 @@ _FOLLOWUP_SYSTEM = (
     "请基于这轮问答，生成 2~3 条用户接下来可能想问的问题。"
     "要求：每条不超过 20 个汉字；必须是用户向 AI 提问的第一人称视角；"
     "与这轮内容直接相关、具体可执行；不要重复这轮已经回答的内容。"
-    "严格只输出一个 JSON 数组，例如 [\"问题一\", \"问题二\"]，不要输出任何其他文字。"
+    '严格只输出一个 JSON 数组，例如 ["问题一", "问题二"]，不要输出任何其他文字。'
 )
 
 
@@ -759,11 +750,7 @@ async def _generate_followups(user_message: str, reply: str) -> list[str]:
             return []
         cleaned = [str(item).strip() for item in items if str(item).strip()]
         # 建议若由含内部工具名的脏文本派生而来，直接丢弃该条（净化在源头，这里是兜网）
-        cleaned = [
-            item
-            for item in cleaned
-            if not any(name in item for name in _TOOL_NAME_LABELS)
-        ]
+        cleaned = [item for item in cleaned if not any(name in item for name in _TOOL_NAME_LABELS)]
         return [item[:40] for item in cleaned[:3]]
     except Exception:
         logger.info("追问建议生成失败，本轮略过", extra={"evt": "followup_fallback"})

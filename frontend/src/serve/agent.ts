@@ -180,12 +180,19 @@ export interface AgentSuggestionsEvent {
   items: string[]
 }
 
+/** C27：开工即到的心跳——后端已接单活着的证据。前端据此放宽首 token 看门狗，
+ *  给上游偶发限速/重试自救留出窗口；仅一个开工心跳，不作为长连接保活。 */
+export interface AgentHeartbeatEvent {
+  type: 'heartbeat'
+}
+
 type AgentStreamEvent =
   | AgentToolEvent
   | AgentContentEvent
   | AgentDoneEvent
   | AgentWorkflowSnapshotEvent
   | AgentSuggestionsEvent
+  | AgentHeartbeatEvent
 
 interface AgentStreamHandlers {
   onTool?: (event: AgentToolEvent) => void
@@ -193,6 +200,7 @@ interface AgentStreamHandlers {
   onDone?: (event: AgentDoneEvent) => void
   onWorkflowSnapshot?: (event: AgentWorkflowSnapshotEvent) => void
   onSuggestions?: (event: AgentSuggestionsEvent) => void
+  onHeartbeat?: (event: AgentHeartbeatEvent) => void
 }
 
 // 解析单个 SSE 块并分发事件。单行损坏（坏 JSON / 未知类型）只丢弃该行，
@@ -218,6 +226,7 @@ function dispatchSseBlock(block: string, handlers: AgentStreamHandlers) {
   else if (event.type === 'done') handlers.onDone?.(event)
   else if (event.type === 'workflow_snapshot') handlers.onWorkflowSnapshot?.(event)
   else if (event.type === 'suggestions') handlers.onSuggestions?.(event)
+  else if (event.type === 'heartbeat') handlers.onHeartbeat?.(event)
   else console.warn('[SSE] 忽略未知事件类型:', (event as { type?: string }).type)
 }
 

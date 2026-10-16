@@ -27,7 +27,11 @@ import { useTaskStore } from '@/stores/tasks'
 import { useWorkflowStore } from '@/stores/workflow'
 import type { WorkflowDraft } from '@/serve/workflow'
 
-const AGENT_FIRST_TOKEN_TIMEOUT_MS = 10000
+// 首 token 看门狗（C27）：开工心跳到达后即提前退役；这里是心跳或上游都失联的兑底。
+// 须长于「后端建流预算」：流式单次尝试 60s + 重试预算已由心跳/空闲看门狗接管，
+// 该常量只是双保险，不再担当常见发现限速误杀的元凶（原来是 10s，上了游偶发
+// 限速时 SDK 重试还没跑完就被掐）。
+const AGENT_FIRST_TOKEN_TIMEOUT_MS = 30000
 // 防卡死看门狗：首个事件到达后，任何事件（content/tool/snapshot/done）
 // 都会重置 60s 计时；超时就主动中断并给用户一句明确的错误结果。
 const AGENT_STREAM_IDLE_TIMEOUT_MS = 60000
@@ -262,6 +266,11 @@ export function useAgentChat(options: UseAgentChatOptions) {
             }
             typewriter.push(event.content)
           },
+          // C27：开工心跳到 -> 首 token 看门狗提前退役（后端活着且上报路径已通）；
+          // 故意不重置 60s 空闲计时——心跳不是内容，职业防卡死仍由空闲看门狗负责。
+          onHeartbeat() {
+            clearFirstTokenTimeout()
+          },
           onWorkflowSnapshot(event) {
             armStreamIdleTimeout(controller)
             // AI 通过后端的 Workflow 命令改动画布：把 Draft 快照交给 workflow store，
@@ -315,7 +324,7 @@ export function useAgentChat(options: UseAgentChatOptions) {
       assistantMessage.isError = true
       assistantMessage.toolName = null
       assistantMessage.content = isFirstTokenTimeout
-        ? '10 秒内未收到模型返回，已自动暂停本次响应。请检查后端日志、接口耗时或重试。'
+        ? `${AGENT_FIRST_TOKEN_TIMEOUT_MS / 1000} 秒内未收到模型返回，已自动暂停本次响应。请检查后端日志、接口耗时或重试。`
         : isStreamIdleTimeout
           ? '超过 60 秒没有新的响应，已自动中断（可能是上游模型或工具卡住）。请重试。'
           : error instanceof Error
@@ -323,7 +332,7 @@ export function useAgentChat(options: UseAgentChatOptions) {
             : 'Neyria 响应失败'
       ElMessage.error(
         isFirstTokenTimeout
-          ? '10 秒内未收到模型返回，已自动暂停'
+          ? `${AGENT_FIRST_TOKEN_TIMEOUT_MS / 1000} 秒内未收到模型返回，已自动暂停`
           : isStreamIdleTimeout
             ? '响应超时，已自动中断'
             : assistantMessage.content,

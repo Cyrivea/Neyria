@@ -121,4 +121,28 @@ describe('streamAgentChat SSE 解析', () => {
     const result = await run(['data: {"type":"tool","tool_name":"calculate"}\n\n'])
     expect(result.tools).toEqual(['calculate'])
   })
+
+  it('C27：heartbeat 事件显式分发（不再当未知类型警告），且不干扰后续事件', async () => {
+    const heartbeats: string[] = []
+    const contents: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          sseResponse([
+            'data: {"type":"heartbeat"}\n\ndata: {"type":"content","content":"ok"}\n\n',
+          ]),
+        ),
+    )
+    await streamAgentChat(
+      { message: 'hi' },
+      {
+        onHeartbeat: () => heartbeats.push('hb'),
+        onContent: (e) => contents.push(e.content),
+      },
+    )
+    expect(heartbeats).toEqual(['hb'])
+    expect(contents).toEqual(['ok'])
+  })
 })
