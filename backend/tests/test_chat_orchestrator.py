@@ -200,7 +200,7 @@ def test_workflow_tools_emit_ui_snapshot_events_not_lyrics(monkeypatch, persiste
     snapshot = {"nodes": [{"id": "n1", "capability_id": "lyrics.generate"}], "edges": []}
 
     async def fake_execute(func_name, func_args):
-        assert func_name == "configure_lyrics_workflow"
+        assert func_name == "add_workflow_chains"
         return ToolOutcome(
             result=json.dumps(
                 {
@@ -217,7 +217,7 @@ def test_workflow_tools_emit_ui_snapshot_events_not_lyrics(monkeypatch, persiste
         monkeypatch,
         [
             tool_call_stream(
-                (0, "call_cfg", "configure_lyrics_workflow", '{"theme": "夏夜城市"}')
+                (0, "call_cfg", "add_workflow_chains", '{"chains": [{"template_id": "lyrics_only", "slots": {"theme": "夏夜城市"}}]}')
             ),
             content_stream("已创建歌词节点"),
         ],
@@ -379,7 +379,7 @@ def test_incomplete_textual_tool_prefix_remains_normal_content(monkeypatch, pers
     _fake, events = run_chat(monkeypatch, [content_stream("search_web 暂时不可用")])
 
     content = "".join(event["content"] for event in events_of(events, "content"))
-    assert content == "search_web 暂时不可用"
+    assert content == "联网搜索 暂时不可用"  # 工具名净化：内部函数名不上屏
 
 
 def test_receipt_marks_rejected_tools_honestly():
@@ -387,12 +387,12 @@ def test_receipt_marks_rejected_tools_honestly():
     from services.chat.chat_orchestrator import _compose_action_receipt
 
     outcomes = [
-        {"name": "configure_lyrics_workflow", "label": "配置歌词节点", "ok": True, "summary": "已配置"},
-        {"name": "configure_image_workflow", "label": "配置图像节点", "ok": False, "summary": "引用上游但没连线"},
+        {"name": "add_workflow_chains", "label": "搭建创作链", "ok": True, "summary": "已配置"},
+        {"name": "update_chain_params", "label": "调整链参数", "ok": False, "summary": "链上没有该环节"},
     ]
     receipt = _compose_action_receipt(outcomes)
-    assert "✗ 配置图像节点" in receipt
-    assert "引用上游" in receipt
+    assert "✗ 调整链参数" in receipt
+    assert "链上没有该环节" in receipt
     assert "未能完成" in receipt
 
 
@@ -410,7 +410,7 @@ def test_hollow_claim_detector():
     assert _claims_action_without_tools("写首歌", "Workflow 已排队执行，画布会显示运行状态", [])
     assert _claims_action_without_tools("生成一张图", "已配置图像节点", [])
     # 配了节点但没跑却声称已排队——空谈变体，要纠
-    assert _claims_action_without_tools("写首歌", "已排队执行", ["configure_lyrics_workflow"])
+    assert _claims_action_without_tools("写首歌", "已排队执行", ["add_workflow_chains"])
     # 纯解释/科普不算空谈
     assert not _claims_action_without_tools("画布是什么", "画布是编辑工作流的地方", [])
     # 空回复走另一条兜底路，不该被这里拦
@@ -443,18 +443,18 @@ def test_hollow_claim_detector_partial_tools():
     from services.chat.chat_orchestrator import _claims_action_without_tools
 
     assert _claims_action_without_tools(
-        "写歌词并出曲绘", "Workflow 已排队执行", ["configure_lyrics_workflow"]
+        "写歌词并出曲绘", "Workflow 已排队执行", ["add_workflow_chains"]
     )
     assert _claims_action_without_tools(
-        "写歌词并出曲绘", "图像已生成在画布上", ["configure_lyrics_workflow", "configure_image_workflow"]
+        "写歌词并出曲绘", "图像已生成在画布上", ["add_workflow_chains", "update_chain_params"]
     )
     # 实实在在跑过不算空谈
     assert not _claims_action_without_tools(
-        "写歌词并出曲绘", "已排队执行", ["configure_lyrics_workflow", "run_current_workflow"]
+        "写歌词并出曲绘", "已排队执行", ["add_workflow_chains", "run_current_workflow"]
     )
     # 纯配置请求缺“跑”不算空谈（用户就没让跑）
     assert not _claims_action_without_tools(
-        "先别跑，把歌词主题改成海边", "已修改参数", ["configure_lyrics_workflow"]
+        "先别跑，把歌词主题改成海边", "已修改参数", ["update_chain_params"]
     )
 
 
@@ -517,3 +517,58 @@ def test_state_change_without_search_still_works(monkeypatch, persisted):
     ]
     _fake, _events = run_chat(monkeypatch, script)
     assert executed == ["run_current_workflow"]
+
+
+# ---------- 工具名净化器（2026-10-11 真机泄漏事故防线） ----------
+
+
+def test_tool_name_in_reply_scrubbed_and_never_leaks(monkeypatch, persisted):
+    """模型把内部函数名说给用户听时：流上屏、done.history、落库三处都必须干净。"""
+    _fake, events = run_chat(
+        monkeypatch,
+        [content_stream("已搭好。接下来可以调用 ", "run_current_workflow", " 执行。")],
+    )
+
+    text = "".join(e["content"] for e in events_of(events, "content"))
+    assert "run_current_workflow" not in text
+    assert "运行工作流" in text
+    done = events_of(events, "done")[0]
+    assert "run_current_workflow" not in done["history"][-1]["content"]
+    assert persisted[-1] == ("assistant", text)
+
+
+def test_tool_name_split_across_deltas_also_scrubbed(monkeypatch, persisted):
+    """跨分片拼出的工具名同样拦得下：净化器压尾巴，凑齐才替换。"""
+    _fake, events = run_chat(
+        monkeypatch,
+        [content_stream("接下来点 ", "run_cur", "rent_workflow", " 就能跑")],
+    )
+    text = "".join(e["content"] for e in events_of(events, "content"))
+    assert "run_cur" not in text  # 连半截名字都不许上屏
+    assert text == "接下来点 运行工作流 就能跑"
+
+
+def test_normal_reply_untouched_by_scrubber(monkeypatch, persisted):
+    """普通文本逐字通过，净化器不误伤、不吃尾巴。"""
+    _fake, events = run_chat(monkeypatch, [content_stream("歌词", "已生成", "，请看画布")])
+    text = "".join(e["content"] for e in events_of(events, "content"))
+    assert text == "歌词已生成，请看画布"
+
+
+def test_followups_drop_suggestions_leaking_tool_names(monkeypatch, persisted):
+    """追问建议若由脏文本派生又含工具名，整条丢弃（源头净化 + 兜网过滤双保险）。"""
+    import services.chat.chat_orchestrator as orch
+
+    monkeypatch.setattr("core.config.FOLLOWUP_SUGGESTIONS_ENABLED", True)
+
+    class _C:
+        def complete(self, **kw):
+            from services.llm import ChatReply
+
+            return ChatReply(
+                content='["如何调用 run_current_workflow？", "封面要不要换个比例？"]'
+            )
+
+    monkeypatch.setattr(orch, "client", _C())
+    result = asyncio.run(orch._generate_followups("歌词→封面图", "已搭好，点运行即可"))
+    assert result == ["封面要不要换个比例？"]

@@ -242,8 +242,9 @@ UNTRUSTED_INGRESS_TOOLS = frozenset({"search_web"})
 # 会改变用户状态/花钱的工具：被注入后误触的爆炸半径最大
 STATE_CHANGING_TOOLS = frozenset(
     {
-        "configure_lyrics_workflow",
-        "configure_image_workflow",
+        "add_workflow_chains",
+        "update_chain_params",
+        "remove_workflow_chain",
         "clear_workflow_draft",
         "run_current_workflow",
     }

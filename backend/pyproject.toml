@@ -21,6 +21,7 @@ dependencies = [
     "python-jose[cryptography]>=3.3",
     "aiosmtplib>=3.0",
     "redis>=8.0",
+    "langgraph>=1.2.14",
 ]
 
 # PEP 735 依赖组：uv sync --all-groups 安装；生产部署 uv sync 只装主依赖

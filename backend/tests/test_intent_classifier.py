@@ -45,7 +45,7 @@ def test_tools_for_calc():
 
     assert "calculate" in tools_for_intent("calc")
     assert "search_web" not in tools_for_intent("calc")
-    assert "configure_lyrics_workflow" not in tools_for_intent("calc")
+    assert "add_workflow_chains" not in tools_for_intent("calc")
 
 
 def test_tools_for_chat():

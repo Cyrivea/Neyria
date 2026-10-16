@@ -38,8 +38,10 @@ INTENT_UNKNOWN = "unknown"
 # 不在表中的意图 = 不限制（unknown）
 _TOOLS_BY_INTENT: dict[str, set[str]] = {
     INTENT_CREATE: {
-        "configure_lyrics_workflow",
-        "configure_image_workflow",
+        "list_workflow_templates",
+        "add_workflow_chains",
+        "update_chain_params",
+        "remove_workflow_chain",
         "run_current_workflow",
         "read_workflow_state",
         "clear_workflow_draft",
@@ -55,8 +57,10 @@ _TOOLS_BY_INTENT: dict[str, set[str]] = {
     },
     INTENT_MODIFY: {
         "read_workflow_state",
-        "configure_lyrics_workflow",
-        "configure_image_workflow",
+        "list_workflow_templates",
+        "add_workflow_chains",
+        "update_chain_params",
+        "remove_workflow_chain",
         "run_current_workflow",
         "wait_for_workflow_completion",
         "get_workflow_run_status",

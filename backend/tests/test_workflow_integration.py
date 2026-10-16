@@ -8,6 +8,9 @@
 
 
 
+import asyncio
+import copy
+
 import pytest
 
 import core.database as database
@@ -50,11 +53,13 @@ def _ensure_user(user_id: int) -> None:
         )
 
 
-def _configure_lyrics(user_id: int):
+def _add_lyrics_chain(user_id: int):
     _ensure_user(user_id)
     workflow_service.mark_canvas_read(user_id, None)
-    return workflow_service.configure_lyrics(
-        user_id, None, {"theme": "失恋", "style": "流行抒情", "mood": "忧郁、克制", "language": "中文"}
+    return workflow_service.add_workflow_chains(
+        user_id,
+        None,
+        [{"template_id": "lyrics_only", "slots": {"theme": "失恋", "style": "流行抒情"}}],
     )
 
 
@@ -64,7 +69,7 @@ def test_full_run_lifecycle_with_real_repos(real_db, monkeypatch):
 
     user = 900
     _create_user(user)
-    _configure_lyrics(user)
+    _add_lyrics_chain(user)
 
     async def fake_capability(capability_id, inputs, *, context):
         return CapabilityResult(
@@ -106,7 +111,7 @@ def test_crash_finalization_releases_lock(real_db):
     """收尸：运行中断后 running 变 failed，编辑锁据 active=run 判定解除。"""
     user = 901
     _create_user(user)
-    _configure_lyrics(user)
+    _add_lyrics_chain(user)
     submission = submit_workflow_run(user, None)
 
     # 人为卡住：把 running_draft 落到库，再崩溃
@@ -124,28 +129,41 @@ def test_crash_finalization_releases_lock(real_db):
     assert saved["revision"] == current["revision"] + 1
 
 
-def test_configure_rejects_upstream_ref_without_wiring(real_db):
-    """图像 prompt 引用上游但未连线，配置期就得拒，不能留到运行期才炸。"""
-    from core.exceptions import AppError
-
+def test_unwired_upstream_ref_fails_node_honestly(real_db):
+    """手画节点 prompt 里夹带上游引用、却只有 Input 供词：运行期必须如实失败，
+    不能让引用记号原样烧给上游 API，更不能盲跑。"""
     user = 902
     _create_user(user)
-    _configure_lyrics(user)
-    with pytest.raises(AppError) as exc:
-        workflow_service.configure_image(
-            user,
-            None,
-            {"prompt": "按歌词出图: ${workflow-node-lyrics-x.result.content}", "style": "电影概念艺术"},
-        )
-    assert exc.value.status_code == 422
-    assert "串联" in exc.value.detail or "上游" in exc.value.detail
+    workflow_service.mark_canvas_read(user, None)
+    current = workflow_service.get_draft(user, None)
+    draft = copy.deepcopy(current["draft"])
+    draft["nodes"].append(
+        {
+            "id": "hand-img",
+            "kind": "tool",
+            "capability_id": "image.generate",
+            "name": "图像生成",
+            "params": {"prompt": "按歌词出图: ${workflow-node-x.result.content}"},
+        }
+    )
+    draft["edges"] += [
+        {"source": workflow_service.INPUT_ID, "target": "hand-img"},
+        {"source": "hand-img", "target": workflow_service.OUTPUT_ID},
+    ]
+    workflow_service.save_draft(user, None, draft, expected_revision=current["revision"])
+
+    result = asyncio.run(workflow_service.run_workflow(user, None))
+    node = next(n for n in result["draft"]["nodes"] if n["id"] == "hand-img")
+    assert result["status"] == "failed"
+    assert node["runStatus"] == "failed"
+    assert "上游" in (node["error"] or "")
 
 
 def test_run_records_env_snapshot(real_db):
     """C15：一次run入库时必须带上当时环境（模型/prompt hash/能力清单）快照。"""
     user = 906
     _create_user(user)
-    _configure_lyrics(user)
+    _add_lyrics_chain(user)
     submission = submit_workflow_run(user, None)
     run = workflow_run_repo.get(user, submission["run_id"])
     env = run["env_snapshot"]
@@ -155,28 +173,24 @@ def test_run_records_env_snapshot(real_db):
     assert "30_workflow_rules.md" in env["prompt_sections"]
 
 
-def test_configure_allowed_during_run_via_cas(real_db):
-    """运行期间允许继续配节点（命周期续命），但写入走 CAS，冲突重读重试。
+def test_add_chain_allowed_during_run_via_cas(real_db):
+    """运行期间允许继续加链（生命线续命），写入走 CAS，冲突重读重试。
 
-    防的是丢更新（双图像节点事故），不是禁止操作本身。"""
+    防的是丢更新（丢节点事故），不是禁止操作本身。"""
     user = 905
     _create_user(user)
-    lyrics = _configure_lyrics(user)
+    _add_lyrics_chain(user)
     submission = submit_workflow_run(user, None)  # run queued = active
 
-    # 运行期间配图像：不拒绝，节点应能进画布，并与歌词串联后两者都在
+    # 运行期间新加一条独立链：不拒绝，两条链并存、互不接线
     workflow_service.mark_canvas_read(user, None)
-    image = workflow_service.configure_image(
-        user,
-        None,
-        {"prompt": "出图: ${upstream.result.content}", "style": "电影概念艺术"},
-        upstream_node_id=lyrics["node_id"],
+    added = workflow_service.add_workflow_chains(
+        user, None, [{"template_id": "image_only", "slots": {"prompt": "出图"}}]
     )
-    names = [n.get("capability_id") for n in image["draft"]["nodes"]]
-    assert "lyrics.generate" in names and "image.generate" in names
-    edges = {(e["source"], e["target"]) for e in image["draft"]["edges"]}
-    assert (lyrics["node_id"], image["node_id"]) in edges
-    _ = submission  # 现场观众：queued 运行仍未结凈，不防碍上面的 configure
+    caps = [n.get("capability_id") for n in added["draft"]["nodes"]]
+    assert "lyrics.generate" in caps and "image.generate" in caps
+    assert [e["chain_no"] for e in added["draft"]["chains"]] == [1, 2]
+    _ = submission  # 现场观众：queued 运行仍未结束，不妨碍上面的搭建
 
 
 def test_usage_ledger_insert_roundtrip(real_db):
@@ -193,20 +207,52 @@ def test_usage_ledger_insert_roundtrip(real_db):
     assert len(items) == 1 and items[0]["capability_id"] == "lyrics.generate"
 
 
-def test_upstream_ref_normalized_when_wired(real_db):
-    """模型自造的 ${workflow-node-xxx.result.content} 会被归一化成规范引用。"""
+def test_model_invented_ref_shape_substituted_when_wired(real_db, monkeypatch):
+    """模型/用户自造的上游引用写法（${workflow-node-x.result.content}）在参数解析时
+    一律按上游引用处理：上游有线且有产出时必须替换干净，“${” 不能残留进上游 API。"""
+    from schemas.capability import CapabilityResult
+
     user = 903
     _create_user(user)
-    lyrics = _configure_lyrics(user)
-    image = workflow_service.configure_image(
-        user,
-        None,
-        {"prompt": "按歌词出图: ${workflow-node-x.result.content}", "style": "二次元插画"},
-        upstream_node_id=lyrics["node_id"],
-    )
-    image_node = next(
-        n for n in image["draft"]["nodes"] if n.get("capability_id") == "image.generate"
-    )
-    assert image_node["params"]["prompt"].endswith("${upstream.result.content}")
-    edges = {(e["source"], e["target"]) for e in image["draft"]["edges"]}
-    assert (lyrics["node_id"], image_node["id"]) in edges
+    workflow_service.mark_canvas_read(user, None)
+    current = workflow_service.get_draft(user, None)
+    draft = copy.deepcopy(current["draft"])
+    draft["nodes"] += [
+        {
+            "id": "hand-lyr",
+            "kind": "tool",
+            "capability_id": "lyrics.generate",
+            "name": "歌词生成",
+            "params": {"theme": "t"},
+        },
+        {
+            "id": "hand-img",
+            "kind": "tool",
+            "capability_id": "image.generate",
+            "name": "图像生成",
+            "params": {"prompt": "按歌词出图: ${workflow-node-x.result.content}"},
+        },
+    ]
+    draft["edges"] += [
+        {"source": workflow_service.INPUT_ID, "target": "hand-lyr"},
+        {"source": "hand-lyr", "target": "hand-img"},
+        {"source": "hand-img", "target": workflow_service.OUTPUT_ID},
+    ]
+    workflow_service.save_draft(user, None, draft, expected_revision=current["revision"])
+
+    captured = {}
+
+    async def fake_capability(capability_id, inputs, *, context):
+        captured[capability_id] = inputs
+        return CapabilityResult(
+            capability_id=capability_id,
+            status="succeeded",
+            result={"format": "markdown", "content": "歌词正文"},
+        )
+
+    monkeypatch.setattr(workflow_service, "run_capability", fake_capability)
+    result = asyncio.run(workflow_service.run_workflow(user, None))
+
+    assert result["status"] == "succeeded"
+    assert "歌词正文" in captured["image.generate"]["prompt"]
+    assert "${" not in captured["image.generate"]["prompt"]

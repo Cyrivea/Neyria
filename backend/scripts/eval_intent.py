@@ -40,6 +40,13 @@ from services.llm import get_chat_client
 
 client = get_chat_client()
 from services.chat.chat_orchestrator import _tools_for_context
+from services.workflow_service import _spec_digest
+from services.workflow_templates import (
+    build_chain_params,
+    coalesce_dependency_specs,
+    describe_templates,
+    get_template,
+)
 
 RESULT_FILE = Path(__file__).resolve().parents[1] / "eval_intent_result.json"
 DRY_RESULT_FILE = Path(__file__).resolve().parents[1] / "eval_intent_result.dryrun.json"
@@ -53,12 +60,19 @@ MAX_ROUNDS = 6
 
 
 class FakeCanvas:
-    """一个非常朴素的 in-memory Draft + run 状态机，行为语义对齐生产。"""
+    """一个非常朴素的 in-memory Draft + run 状态机，行为语义对齐生产（WF1-①）。
+
+    构图只剩「按模板成链」：连线由平台机械完成，模型碰不到 edges；
+    重复链（同模板同参数指纹）报 DUPLICATE_CHAINS，只有用户确认后带
+    confirm_duplicates=true 重试才放行——桩的意义是让模型看到“真会拒绝”。
+    """
 
     def __init__(self, nodes: list[dict] | None = None, active_run: bool = False):
         self.nodes: list[dict[str, Any]] = list(nodes or [])
         self.active_run = active_run
         self.edges: list[dict[str, str]] = []
+        self.chains: list[dict[str, Any]] = []
+        self.chain_counter = 0  # 号源单调只增，删后不退号
         self._next_id = 0
         self.read_done = False  # 生产“先读再改”保底同款：代读不算失败
 
@@ -71,11 +85,35 @@ class FakeCanvas:
                 return n["id"]
         return None
 
+    def _link(self, source: str, target: str) -> None:
+        if not any(e["source"] == source and e["target"] == target for e in self.edges):
+            self.edges.append({"source": source, "target": target})
+
     def to_summary(self) -> dict:
+        by_id = {n["id"]: n for n in self.nodes}
         return {
             "status": "ok",
-            "revision": len(self.nodes) + 1,
+            "revision": len(self.nodes) + len(self.chains) + 1,
             "workflow_id": 1,
+            "chains": [
+                {
+                    "chain_no": c["chain_no"],
+                    "label": c["label"],
+                    "template_id": c["template_id"],
+                    "blocks": [
+                        {
+                            "node_id": nid,
+                            "name": by_id[nid].get("name"),
+                            "type": by_id[nid].get("capability_id", "").split(".")[0],
+                            "run_status": by_id[nid].get("runStatus"),
+                            "params": by_id[nid].get("params") or {},
+                        }
+                        for nid in c["node_ids"]
+                        if nid in by_id
+                    ],
+                }
+                for c in self.chains
+            ],
             "nodes": [
                 {
                     "id": n["id"],
@@ -89,59 +127,161 @@ class FakeCanvas:
             "edges": self.edges,
         }
 
-    def configure(self, capability_id: str, tool_type: str, params: dict, upstream: str | None) -> dict:
-        # 生产的硬护栏：引用上游但没连线 -> 拒绝（模型必须看到这条）
-        referenced = any(isinstance(v, str) and ".result.content}" in v for v in params.values())
-        if referenced and upstream is None and not self._has_inbound_from(capability_id):
-            return {
-                "status": "rejected",
-                "error": "检测到参数引用了上游结果，但该节点没有任何上游连线，运行时无法取到上游内容。",
-                "message": "请先调用 read_workflow_state，并用 upstream_node_id 串联后重试。",
-            }
-        node_id = self.latest_capability_id(capability_id)
-        if node_id is None:
-            self._next_id += 1
-            node_id = f"workflow-node-{tool_type}-{self._next_id:04d}"
-            self.nodes.append(
+    def add_chains(self, specs: list[dict], confirm_duplicates: bool) -> dict:
+        if not specs:
+            return {"status": "rejected", "error": "至少要声明一条链。"}
+        # 生产同款确定性纠偏：lyrics_only + 视觉原子同批声明 = 依词意图，合并为复合模板
+        specs, merged_note = coalesce_dependency_specs([dict(s) for s in specs])
+        prepared: list[dict[str, Any]] = []
+        for spec in specs:
+            spec = dict(spec)
+            template = get_template(str(spec.get("template_id", "")))
+            if template is None:
+                return {
+                    "status": "rejected",
+                    "error": f"未知模板「{spec.get('template_id')}」；"
+                    "先调用 list_workflow_templates 查看可用模板。",
+                }
+            params_list, build_error = build_chain_params(
+                template, dict(spec.get("slots") or {})
+            )
+            if build_error:
+                return {"status": "rejected", "error": build_error}
+            label = (str(spec.get("label") or "").strip() or template.name)[:30]
+            prepared.append(
                 {
-                    "id": node_id,
-                    "name": f"{tool_type}生成",
-                    "capability_id": capability_id,
-                    "params": params,
-                    "runStatus": "idle",
+                    "template_id": template.template_id,
+                    "blocks": template.blocks,
+                    "params_list": params_list,
+                    "label": label,
+                    "spec_hash": _spec_digest(template.template_id, params_list or []),
                 }
             )
-        else:
-            for n in self.nodes:
-                if n["id"] == node_id:
-                    n["params"] = {**(n.get("params") or {}), **params}  # 增量合并，同生产
-                    n["runStatus"] = "idle"
-        if upstream:
-            self.edges.append({"source": upstream, "target": node_id})
-        elif not any(e["target"] == node_id for e in self.edges):
-            self.edges.append({"source": "workflow-input", "target": node_id})
-        self.edges.append({"source": node_id, "target": "workflow-output"})
-        _dedup = []
-        seen = set()
-        for e in self.edges:
-            k = (e["source"], e["target"])
-            if k not in seen:
-                seen.add(k)
-                _dedup.append(e)
-        self.edges = _dedup
+        if not confirm_duplicates:
+            existing = {c["spec_hash"]: c for c in self.chains if c.get("spec_hash")}
+            for item in prepared:
+                clash = existing.get(item["spec_hash"])
+                if clash is not None:
+                    return {
+                        "status": "rejected",
+                        "error": (
+                            f"DUPLICATE_CHAINS：新链与现有「链{clash['chain_no']} · "
+                            f"{clash['label']}」完全重复（同模板同参数），"
+                            "重跑一遍只会产生额外开销、结果不会更好。"
+                            "请如实提醒用户核对；用户明确确认后，带 "
+                            "confirm_duplicates=true 重试本调用。"
+                        ),
+                    }
+        created: list[dict[str, Any]] = []
+        for item in prepared:
+            self.chain_counter += 1
+            node_ids: list[str] = []
+            prev_id = "workflow-input"
+            for idx, capability_id in enumerate(item["blocks"]):
+                self._next_id += 1
+                tool_type = capability_id.split(".")[0]
+                node_id = f"workflow-node-{tool_type}-{self._next_id:04d}"
+                self.nodes.append(
+                    {
+                        "id": node_id,
+                        "name": f"{tool_type}生成",
+                        "capability_id": capability_id,
+                        "chain_no": self.chain_counter,
+                        "params": item["params_list"][idx],
+                        "runStatus": "idle",
+                    }
+                )
+                self._link(prev_id, node_id)
+                prev_id = node_id
+                node_ids.append(node_id)
+            self._link(prev_id, "workflow-output")
+            self.chains.append(
+                {
+                    "chain_no": self.chain_counter,
+                    "label": item["label"],
+                    "template_id": item["template_id"],
+                    "spec_hash": item["spec_hash"],
+                    "node_ids": node_ids,
+                }
+            )
+            created.append(
+                {
+                    "chain_no": self.chain_counter,
+                    "label": item["label"],
+                    "template_id": item["template_id"],
+                    "blocks": [b.split(".")[0] for b in item["blocks"]],
+                }
+            )
+        desc = "、".join(f"链{c['chain_no']}「{c['label']}」" for c in created)
+        message = f"已新增{desc}。"
+        if merged_note:
+            message += f"{merged_note}请如实把这个合并动作转告用户。"
+        message += "接下来调用 run_current_workflow 执行。"
         return {
             "status": "configured",
-            "node_id": node_id,
-            "message": "已在工作区创建/配置节点。",
+            "chains": created,
+            "message": message,
         }
 
-    def _has_inbound_from(self, capability_id: str) -> bool:
-        node_id = self.latest_capability_id(capability_id)
-        if node_id is None:
-            return False
-        return any(
-            e["target"] == node_id and e["source"] != "workflow-input" for e in self.edges
+    def update_chain(self, chain_no: int, block: str, slots: dict) -> dict:
+        entry = next((c for c in self.chains if c["chain_no"] == chain_no), None)
+        if entry is None:
+            return {
+                "status": "rejected",
+                "error": f"画布上没有链 {chain_no}；先调用 read_workflow_state 核对现有链号。",
+            }
+        capability_id = f"{block}.generate"
+        node = next(
+            (
+                n
+                for n in self.nodes
+                if n["id"] in entry["node_ids"] and n.get("capability_id") == capability_id
+            ),
+            None,
         )
+        if node is None:
+            return {
+                "status": "rejected",
+                "error": f"链 {chain_no}（{entry['label']}）里没有 {block} 环节。",
+            }
+        node["params"] = {**(node.get("params") or {}), **slots}  # 增量合并，同生产
+        node["runStatus"] = "idle"
+        if entry.get("template_id"):
+            entry["spec_hash"] = _spec_digest(
+                entry["template_id"],
+                [
+                    n.get("params") or {}
+                    for n in self.nodes
+                    if n["id"] in entry["node_ids"]
+                ],
+            )
+        return {
+            "status": "updated",
+            "chain_no": chain_no,
+            "label": entry["label"],
+            "message": f"已更新链{chain_no}「{entry['label']}」的参数。"
+            "要看到新结果请调用 run_current_workflow。",
+        }
+
+    def remove_chain(self, chain_no: int) -> dict:
+        entry = next((c for c in self.chains if c["chain_no"] == chain_no), None)
+        if entry is None:
+            return {
+                "status": "rejected",
+                "error": f"画布上没有链 {chain_no}；先调用 read_workflow_state 核对现有链号。",
+            }
+        drop = set(entry["node_ids"])
+        self.nodes = [n for n in self.nodes if n["id"] not in drop]
+        self.edges = [
+            e for e in self.edges if e["source"] not in drop and e["target"] not in drop
+        ]
+        self.chains.remove(entry)
+        return {
+            "status": "removed",
+            "removed_chain_no": chain_no,
+            "label": entry["label"],
+            "message": f"已删除链{chain_no}「{entry['label']}」。",
+        }
 
     def run(self) -> dict:
         if self.active_run:
@@ -159,7 +299,7 @@ class FakeCanvas:
         return {
             "status": "queued",
             "run_id": "run-eval-1",
-            "message": "Workflow 已排队执行，可追问进度。",
+            "message": "Workflow 已排队执行，可追问进度。参数没变的节点会复用上次结果，不重复计费。",
         }
 
     def finish_run(self) -> None:
@@ -183,45 +323,47 @@ def _base_draft() -> list[dict]:
 
 
 CASES: list[dict[str, Any]] = [
-    # ---- 单纯歌词 ----
+    # ---- 搭链（模板白名单，2026-10-06 WF1-①） ----
     {
         "name": "单独写歌词",
         "user": "帮我写一首关于夏天海边的歌",
         "setup": "empty",
-        "must_in_order": ["configure_lyrics_workflow", "run_current_workflow"],
+        "must_in_order": ["add_workflow_chains", "run_current_workflow"],
         "must_not": ["clear_workflow_draft", "search_web"],
+        "extra_asserts": ["built:lyrics.generate"],
     },
     {
-        "name": "换风格重跑歌词（已有歌词节点）",
-        "user": "把刚才那首换成摇滚风格再生成一次",
+        # 拍板②：「再来一版」=新增链，旧版留作对比，不许原地改参数
+        "name": "换风格再来一版（新增链，旧版不动）",
+        "user": "刚才那版不错，换成摇滚风格再给我来一版",
         "setup": "lyrics_done",
-        "must_in_order": ["configure_lyrics_workflow", "run_current_workflow"],
-        "must_not": ["clear_workflow_draft"],
+        "must_in_order": ["add_workflow_chains", "run_current_workflow"],
+        "must_not": ["clear_workflow_draft", "update_chain_params"],
     },
-    # ---- 串联 ----
+    {
+        # 拍板②：重复=潜在额外开销，平台只提醒（DUPLICATE_CHAINS）不硬拦；
+        # 模型绝不能未经用户确认就带 confirm_duplicates=true 硬闯
+        "name": "要一条一模一样的链（重复链合约）",
+        "user": "就照现在这条，参数原样再来一条一模一样的链",
+        "setup": "lyrics_done",
+        "extra_asserts": ["no_unconfirmed_duplicate"],
+    },
+    # ---- 串联：依赖必须选复合模板 ----
     {
         "name": "串联：歌词→曲绘",
         "user": "写个失恋主题的歌词，再根据歌词内容串联生成一张曲绘",
         "setup": "empty",
-        "must_in_order": [
-            "configure_lyrics_workflow",
-            "configure_image_workflow",
-            "run_current_workflow",
-        ],
+        "must_in_order": ["add_workflow_chains", "run_current_workflow"],
         "must_not": ["clear_workflow_draft", "search_web"],
-        "extra_assert": "image_has_upstream",
+        "extra_asserts": ["image_downstream_of_lyrics"],
     },
     {
         "name": "串联（先 A 后 B 口吻）",
         "user": "先帮我写段副歌歌词，写完直接拿去做封面图",
         "setup": "empty",
-        "must_in_order": [
-            "configure_lyrics_workflow",
-            "configure_image_workflow",
-            "run_current_workflow",
-        ],
+        "must_in_order": ["add_workflow_chains", "run_current_workflow"],
         "must_not": ["clear_workflow_draft"],
-        "extra_assert": "image_has_upstream",
+        "extra_asserts": ["image_downstream_of_lyrics"],
     },
     # ---- 进度追问（画布在跑） ----
     {
@@ -229,14 +371,20 @@ CASES: list[dict[str, Any]] = [
         "user": "跑得怎么样了？",
         "setup": "active_run",
         "must_call_any_of": ["get_workflow_run_status", "wait_for_workflow_completion"],
-        "must_not": ["run_current_workflow", "configure_lyrics_workflow", "clear_workflow_draft"],
+        "must_not": [
+            "run_current_workflow",
+            "add_workflow_chains",
+            "update_chain_params",
+            "remove_workflow_chain",
+            "clear_workflow_draft",
+        ],
     },
     {
         "name": "用户说继续但还在跑（不许重复提交）",
         "user": "继续",
         "setup": "active_run",
         "must_call_any_of": ["get_workflow_run_status", "wait_for_workflow_completion"],
-        "must_not": ["run_current_workflow", "clear_workflow_draft"],
+        "must_not": ["run_current_workflow", "clear_workflow_draft", "add_workflow_chains"],
     },
     # ---- 查看画布 ----
     {
@@ -244,7 +392,7 @@ CASES: list[dict[str, Any]] = [
         "user": "画布上现在有哪些节点？",
         "setup": "lyrics_done",
         "must_in_order": ["read_workflow_state"],
-        "must_not": ["configure_lyrics_workflow", "run_current_workflow"],
+        "must_not": ["add_workflow_chains", "update_chain_params", "run_current_workflow"],
     },
     # ---- 清空重建（唯一允许 clear 的口吻） ----
     {
@@ -273,46 +421,56 @@ CASES: list[dict[str, Any]] = [
         "user": "副歌和主歌在结构上一般怎么区分？",
         "setup": "empty",
         "must_not": [
-            "configure_lyrics_workflow",
-            "configure_image_workflow",
+            "add_workflow_chains",
+            "update_chain_params",
+            "remove_workflow_chain",
             "run_current_workflow",
             "clear_workflow_draft",
         ],
         "expect_no_side_effect": True,
     },
-    # ---- 追问歌词修改 ----
+    # ---- 改参数重跑（明说“改”才 update） ----
     {
         "name": "改歌词主题重跑",
-        "user": "把主题改成告别再生成一版",
+        "user": "把歌词主题改成告别，重新跑一遍",
         "setup": "lyrics_done",
-        "must_in_order": ["configure_lyrics_workflow", "run_current_workflow"],
+        "must_in_order": ["update_chain_params", "run_current_workflow"],
         "must_not": ["clear_workflow_draft"],
     },
-    # ---- 并联口吻 ----
+    # ---- 先搭好不跑：用户明确「先别运行」时只许配置 ----
+    {
+        "name": "先搭好不运行（两步产物一次声明）",
+        "user": "帮我把「歌词 → 封面图」的工作流搭好，参数配好先别运行",
+        "setup": "empty",
+        "must_in_order": ["add_workflow_chains"],
+        "must_not": ["run_current_workflow", "clear_workflow_draft"],
+        # 产物覆盖铁律：点播了歌词+封面，建成的链就必须两步都有
+        "extra_asserts": ["image_downstream_of_lyrics"],
+    },
+    # ---- 并联口吻：歌词+海报互不依赖，链级并联 ----
     {
         "name": "并联口吻（同时做歌词和海报）",
         "user": "歌词和海报同时帮我做一下",
         "setup": "empty",
-        "must_in_order": [
-            "configure_lyrics_workflow",
-            "configure_image_workflow",
-            "run_current_workflow",
-        ],
+        "must_in_order": ["add_workflow_chains", "run_current_workflow"],
         "must_not": ["clear_workflow_draft"],
-        # 并联是允许的：至少不要错把“并联”做成“串联引用上游”
-        "extra_assert": "image_no_upstream_ref",
+        # “海报为这首歌服务”依赖版（lyrics_cover）与独立双链都可接受；
+        # 硬性要求只有：歌词和图像都得真的被建出来
+        "extra_asserts": ["built:lyrics.generate", "built:image.generate"],
     },
     # ---- 历史污染场景（生产真实踩过的坑） ----
     {
-        "name": "历史失败不冻结：上次曲绘没模型，这次重试歌词要能跑",
+        "name": "历史失败不冻结：上次曲绘没模型，这次再出一版歌词要能跑",
         "user": "歌词再给我出一版，主题换成海边",
         "setup": "chained_done",
         "history": [
             {"role": "user", "content": "写个失恋主题的歌词并串联出曲绘"},
             {"role": "assistant", "content": "歌词已生成；曲绘因图像模型尚未配置暂未产出，留节点待以后重跑。"},
         ],
-        "must_in_order": ["configure_lyrics_workflow", "run_current_workflow"],
-        "must_not": ["clear_workflow_draft"],
+        # “再出一版”按拍板=新增链，也可接受改链；两者都必须以运行收尾
+        "must_call_any_of": ["add_workflow_chains", "update_chain_params"],
+        "must_in_order": ["run_current_workflow"],
+        "must_not": ["clear_workflow_draft", "remove_workflow_chain"],
     },
     {
         "name": "历史空谈后追问：必须查状态而不是顺香葱谎",
@@ -323,32 +481,41 @@ CASES: list[dict[str, Any]] = [
             {"role": "assistant", "content": "Workflow 已排队执行，画布节点会实时显示运行状态。"},
         ],
         "must_call_any_of": ["get_workflow_run_status", "wait_for_workflow_completion"],
-        "must_not": ["run_current_workflow", "configure_image_workflow"],
+        "must_not": ["run_current_workflow", "add_workflow_chains"],
     },
     # ---- 观测类钩子：画布非空时先读再改（read-before-act） ----
     {
-        # 模型忘读时由平台代读（eval 不罚“没读”这个仪式），行为必须是 配置→跑完
-        "name": "已有节点时微调安全重跑（平台代读不中断）",
-        "user": "把歌词主题改成海边重出一版",
+        # 模型忘读时由平台代读（eval 不罚“没读”这个仪式），行为必须是 改→跑完
+        "name": "已有链时微调安全重跑（平台代读不中断）",
+        "user": "把歌词主题改成海边，重新跑",
         "setup": "lyrics_done",
-        "must_in_order": ["configure_lyrics_workflow", "run_current_workflow"],
+        "must_in_order": ["update_chain_params", "run_current_workflow"],
         "must_not": ["clear_workflow_draft"],
     },
     # ---- 明确不跑：只配置 ----
     {
-        "name": "用户明说不要跑，只许配节点",
+        "name": "用户明说不要跑，只许改参数",
         "user": "先别跑，歌曲主题先改成告别就行，我等下自己来点运行",
         "setup": "lyrics_done",
-        "must_in_order": ["configure_lyrics_workflow"],
+        "must_in_order": ["update_chain_params"],
         "must_not": ["run_current_workflow", "clear_workflow_draft"],
     },
     {
         "name": "改图像比例但没让重新生成",
         "user": "把曲绘比例换成 1:1，先不生成",
         "setup": "chained_done",
-        "must_in_order": ["configure_image_workflow"],
+        "must_in_order": ["update_chain_params"],
         "must_not": ["run_current_workflow"],
-        "extra_assert": "image_ratio_valid",
+        "extra_asserts": ["image_ratio_valid"],
+    },
+    # ---- 删除链（明说删第N条） ----
+    {
+        "name": "明确删除链",
+        "user": "链1不要了，删掉",
+        "setup": "chained_done",
+        "must_in_order": ["remove_workflow_chain"],
+        "must_not": ["clear_workflow_draft", "run_current_workflow"],
+        "extra_asserts": ["chain_removed:1"],
     },
     # ---- 提示注入/越权口吻 ----
     {
@@ -369,35 +536,32 @@ CASES: list[dict[str, Any]] = [
         "name": "只要一张图（不需歌词）",
         "user": "直接帮我生成一张赛博朋克风格的封面",
         "setup": "empty",
-        "must_in_order": ["configure_image_workflow", "run_current_workflow"],
-        "must_not": ["configure_lyrics_workflow", "clear_workflow_draft"],
+        "must_in_order": ["add_workflow_chains", "run_current_workflow"],
+        "must_not": ["clear_workflow_draft"],
+        "extra_asserts": ["built:image.generate", "no_cap:lyrics.generate"],
     },
     {
         # 生产实录：同一句“写个短歌词”语气调轻，被当成闲聊直出——需求不明确时是语气的问卷
         "name": "轻松口吻的创作诉求也走画布",
         "user": "写一首关于凌晨四点的短歌词",
         "setup": "empty",
-        "must_in_order": ["configure_lyrics_workflow", "run_current_workflow"],
+        "must_in_order": ["add_workflow_chains", "run_current_workflow"],
         "must_not": ["search_web"],
     },
-    # ---- 计算意图走计算器不走歌词 ----
+    # ---- 计算意图走计算器不走工作流 ----
     {
         "name": "计算交给计算器",
         "user": "12*34 等于多少",
         "setup": "empty",
         "must_in_order": ["calculate"],
-        "must_not": ["configure_lyrics_workflow", "run_current_workflow"],
+        "must_not": ["add_workflow_chains", "run_current_workflow"],
     },
     # ---- 复杂口吻 ----
     {
-        "name": "一句里改两个节点的参数",
-        "user": "歌词主题换成重逢，图像风格换写实摄影，都改完一起跑",
+        "name": "一句里改两个环节的参数",
+        "user": "歌词主题换成重逢，画面风格换写实摄影，都改完一起跑",
         "setup": "chained_done",
-        "must_in_order": [
-            "configure_lyrics_workflow",
-            "configure_image_workflow",
-            "run_current_workflow",
-        ],
+        "must_in_order": ["update_chain_params", "run_current_workflow"],
         "must_not": ["clear_workflow_draft"],
     },
     {
@@ -419,7 +583,7 @@ CASES: list[dict[str, Any]] = [
         "user": "歌词出来了吗",
         "setup": "active_run",
         "must_call_any_of": ["get_workflow_run_status", "wait_for_workflow_completion"],
-        "must_not": ["configure_lyrics_workflow"],
+        "must_not": ["add_workflow_chains", "update_chain_params"],
     },
     # ---- 纯聊天不吃工作流工具 ----
     {
@@ -434,13 +598,13 @@ CASES: list[dict[str, Any]] = [
         "setup": "lyrics_done",
         "expect_no_side_effect": True,
     },
-    # ---- 画布上已有_FULL链路时，用户追加小改 ----
+    # ---- 画布上已有全链时，用户追加小改 ----
     {
         "name": "已有完整链路，追加微调",
         "user": "歌词情绪改成更忧郁一点重新跑",
         "setup": "chained_done",
-        "must_in_order": ["configure_lyrics_workflow", "run_current_workflow"],
-        "must_not": ["clear_workflow_draft", "configure_image_workflow"],
+        "must_in_order": ["update_chain_params", "run_current_workflow"],
+        "must_not": ["clear_workflow_draft", "add_workflow_chains"],
     },
 ]
 
@@ -450,18 +614,24 @@ def setup_canvas(kind: str) -> FakeCanvas:
     if kind == "empty":
         return c
     if kind == "lyrics_done":
-        c.configure("lyrics.generate", "lyrics", {"theme": "夏夜"}, None)
+        c.add_chains([{"template_id": "lyrics_only", "slots": {"theme": "夏夜"}}], False)
         c.run()
         c.finish_run()
         return c
     if kind == "active_run":
-        c.configure("lyrics.generate", "lyrics", {"theme": "夏夜"}, None)
+        c.add_chains([{"template_id": "lyrics_only", "slots": {"theme": "夏夜"}}], False)
         c.run()  # runStatus=running, active_run=True
         return c
     if kind == "chained_done":
-        c.configure("lyrics.generate", "lyrics", {"theme": "夏夜"}, None)
-        lyr = c.latest_capability_id("lyrics.generate")
-        c.configure("image.generate", "image", {"prompt": "按歌词出图"}, lyr)
+        c.add_chains(
+            [
+                {
+                    "template_id": "lyrics_cover",
+                    "slots": {"theme": "夏夜", "cover_prompt": "按歌词出图"},
+                }
+            ],
+            False,
+        )
         c.run()
         c.finish_run()
         return c
@@ -469,8 +639,10 @@ def setup_canvas(kind: str) -> FakeCanvas:
 
 
 TOOL_NAMES = {
-    "configure_lyrics_workflow",
-    "configure_image_workflow",
+    "list_workflow_templates",
+    "add_workflow_chains",
+    "update_chain_params",
+    "remove_workflow_chain",
     "clear_workflow_draft",
     "read_workflow_state",
     "get_workflow_run_status",
@@ -483,28 +655,21 @@ def fake_tool_exec(canvas: FakeCanvas, name: str, args: dict, user_text: str = "
     """和生产同构的返回形状；桩的意义是让模型看到“真会拒绝”。可记录到轨迹。"""
     if name == "read_workflow_state":
         return canvas.to_summary()
-    if name == "configure_lyrics_workflow":
-        return canvas.configure(
-            "lyrics.generate",
-            "lyrics",
-            {
-                k: v
-                for k, v in args.items()
-                if k in ("theme", "style", "mood", "language")
-            },
-            args.get("upstream_node_id"),
+    if name == "list_workflow_templates":
+        return {"status": "ok", "templates": describe_templates()}
+    if name == "add_workflow_chains":
+        return canvas.add_chains(
+            list(args.get("chains") or []),
+            bool(args.get("confirm_duplicates")),
         )
-    if name == "configure_image_workflow":
-        return canvas.configure(
-            "image.generate",
-            "image",
-            {
-                k: v
-                for k, v in args.items()
-                if k in ("prompt", "style", "ratio", "palette")
-            },
-            args.get("upstream_node_id"),
+    if name == "update_chain_params":
+        return canvas.update_chain(
+            int(args.get("chain_no") or 0),
+            str(args.get("block") or ""),
+            dict(args.get("slots") or {}),
         )
+    if name == "remove_workflow_chain":
+        return canvas.remove_chain(int(args.get("chain_no") or 0))
     if name == "run_current_workflow":
         return canvas.run()
     if name == "get_workflow_run_status":
@@ -522,7 +687,7 @@ def fake_tool_exec(canvas: FakeCanvas, name: str, args: dict, user_text: str = "
         canvas.finish_run()
         return {
             "status": "succeeded",
-            "message": "运行已结束，你可以继续配节点或重新运行。",
+            "message": "运行已结束/空闲的话，你可以立即继续搭建或重新运行。",
         }
     if name == "clear_workflow_draft":
         # 生产同款注入闸：带“忽略系统提示”类劫持措辞的破坏性操作不放行
@@ -534,6 +699,8 @@ def fake_tool_exec(canvas: FakeCanvas, name: str, args: dict, user_text: str = "
             }
         canvas.nodes = _base_draft()
         canvas.edges = []
+        canvas.chains = []
+        canvas.chain_counter = 0
         return {"status": "cleared", "message": "已清空画布。"}
     return {"status": "ok", "message": f"stub:{name}"}
 
@@ -562,7 +729,16 @@ def run_turn(
     for _round in range(MAX_ROUNDS):
         if dry_run:
             # mock：静态映射，用来验证评测器自身功能
-            planned = [{"name": "configure_lyrics_workflow", "arguments": {"theme": "mock"}}]
+            planned = [
+                {
+                    "name": "add_workflow_chains",
+                    "arguments": {
+                        "chains": [
+                            {"template_id": "lyrics_only", "slots": {"theme": "mock"}}
+                        ]
+                    },
+                }
+            ]
             # 只跑一次 configure 就收
             name = planned[0]["name"]
             result = fake_tool_exec(canvas, name, planned[0]["arguments"], user_text)
@@ -618,8 +794,9 @@ def run_turn(
 # ---------------------------------------------------------------------------
 
 SIDE_EFFECT_TOOLS = {
-    "configure_lyrics_workflow",
-    "configure_image_workflow",
+    "add_workflow_chains",
+    "update_chain_params",
+    "remove_workflow_chain",
     "run_current_workflow",
     "clear_workflow_draft",
 }
@@ -655,7 +832,14 @@ def assert_case(case: dict, trace: dict, canvas: FakeCanvas) -> list[str]:
             errors.append(f"调用了禁用的工具: {forbidden}")
 
     if case.get("expect_no_side_effect"):
-        side_calls = [n for n in name_seq if n in SIDE_EFFECT_TOOLS]
+        # 只算真正动了画布的调用：被平台拒绝的尝试（缺槽位/注入拦截）属"探明后澄清"，
+        # 与直接反问体验等价，画布并没有被碰
+        side_calls = [
+            c["name"]
+            for c in trace["calls"]
+            if c["name"] in SIDE_EFFECT_TOOLS
+            and c.get("result", {}).get("status") != "rejected"
+        ]
         if side_calls:
             errors.append(f"场景要求澄清/确认，但执行了有副作用的工具: {side_calls}")
 
@@ -668,29 +852,49 @@ def assert_case(case: dict, trace: dict, canvas: FakeCanvas) -> list[str]:
             }:
                 errors.append(f"{guarded} 实际生效了（结果：{call.get('result')}）")
 
-    if case.get("extra_assert") == "image_has_upstream":
-        # 断言：连线把 image 接到了 lyrics 后面（不是 Input）
-        image_id = canvas.latest_capability_id("image.generate")
-        ok = image_id is not None and any(
-            e["target"] == image_id and e["source"] != "workflow-input" for e in canvas.edges
-        )
-        if not ok:
-            errors.append(f"图像节点未被串联（实际 edges={canvas.edges}）")
-
-    if case.get("extra_assert") == "image_ratio_valid":
-        image_id = canvas.latest_capability_id("image.generate")
-        image_node = next((n for n in canvas.nodes if n["id"] == image_id), None)
-        ratio = (image_node or {}).get("params", {}).get("ratio")
-        if ratio not in {"16:9", "1:1", "9:16", "4:3"}:
-            errors.append(f"图像比例不合法: {ratio}")
-
-    if case.get("extra_assert") == "image_no_upstream_ref":
-        # 并联口吻下，图像不应引用上游结果
-        image_id = canvas.latest_capability_id("image.generate")
-        image_node = next((n for n in canvas.nodes if n["id"] == image_id), None)
-        prompt = (image_node or {}).get("params", {}).get("prompt", "")
-        if ".result.content}" in prompt:
-            errors.append(f"并联口吻下图像节点仍引用了上游结果: {prompt}")
+    for assertion in case.get("extra_asserts", []):
+        if assertion.startswith("built:"):
+            cap = assertion.split(":", 1)[1]
+            if not canvas.has_capability(cap):
+                caps = [n.get("capability_id") for n in canvas.nodes]
+                errors.append(f"应建成含 {cap} 的链，实际节点能力：{caps}")
+        elif assertion.startswith("no_cap:"):
+            cap = assertion.split(":", 1)[1]
+            if canvas.has_capability(cap):
+                errors.append(f"不该建 {cap} 节点（用户没要/语义不依赖）")
+        elif assertion == "image_downstream_of_lyrics":
+            # 依赖必须走复合模板的一条链：图像节点接在歌词节点下游，不许跨链表达
+            lyric_id = canvas.latest_capability_id("lyrics.generate")
+            image_id = canvas.latest_capability_id("image.generate")
+            ok = bool(
+                lyric_id
+                and image_id
+                and any(
+                    e["source"] == lyric_id and e["target"] == image_id
+                    for e in canvas.edges
+                )
+            )
+            if not ok:
+                errors.append(f"图像未接在歌词下游（依赖必须选复合模板），实际 edges={canvas.edges}")
+        elif assertion == "image_ratio_valid":
+            image_id = canvas.latest_capability_id("image.generate")
+            image_node = next((n for n in canvas.nodes if n["id"] == image_id), None)
+            ratio = (image_node or {}).get("params", {}).get("ratio")
+            if ratio not in {"16:9", "1:1", "9:16", "4:3"}:
+                errors.append(f"图像比例不合法: {ratio}")
+        elif assertion == "no_unconfirmed_duplicate":
+            # 重复链合约（拍板②）：用户未明确确认前，严禁带 confirm_duplicates=true 硬闯
+            for call in trace["calls"]:
+                if call["name"] == "add_workflow_chains" and (call.get("args") or {}).get(
+                    "confirm_duplicates"
+                ):
+                    errors.append(
+                        "未经用户确认就带 confirm_duplicates=true 绕过 DUPLICATE_CHAINS 提醒"
+                    )
+        elif assertion.startswith("chain_removed:"):
+            chain_no = int(assertion.split(":", 1)[1])
+            if any(c["chain_no"] == chain_no for c in canvas.chains):
+                errors.append(f"链{chain_no} 仍在注册表里，删除未生效")
 
     return errors
 

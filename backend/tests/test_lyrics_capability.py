@@ -24,8 +24,8 @@ def test_assistant_schema_hides_direct_capability_but_keeps_workflow_tools():
     names = {item["function"]["name"] for item in chat_orchestrator._tools_for_context(False)}
     assert "generate_lyrics_block" not in names
     assert {
-        "configure_lyrics_workflow",
-        "configure_image_workflow",
+        "add_workflow_chains",
+        "update_chain_params",
         "read_workflow_state",
         "run_current_workflow",
     } <= names

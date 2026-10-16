@@ -34,7 +34,10 @@ export function formatToolName(toolName: string) {
     get_current_time: '时间工具',
     search_web: '联网搜索',
     generate_lyrics_block: '歌词生成',
-    configure_lyrics_workflow: '歌词工作流',
+    list_workflow_templates: '查看模板库',
+    add_workflow_chains: '搭建创作链',
+    update_chain_params: '调整链参数',
+    remove_workflow_chain: '删除创作链',
     run_current_workflow: '运行工作流',
   }
 

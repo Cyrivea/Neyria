@@ -130,8 +130,8 @@ def _tools_for_context(has_knowledge_context: bool) -> list[dict]:
     """有私有资料时锁住联网工具；无命中时只保留计算和联网后备。
 
     ``generate_lyrics_block`` 只对 Workflow Runner 内部使用——Assistant 必须通过
-    configure_lyrics_workflow/run_current_workflow 操作画布，不能绕过 Workflow
-    直接生成一首歌词丢回聊天框。
+    add_workflow_chains/run_current_workflow 操作画布（WF1-① 起构图走模板链），
+    不能绕过 Workflow 直接生成一首歌词丢回聊天框。
     """
     direct_capability_tools = {"generate_lyrics_block"}
     if has_knowledge_context:
@@ -183,8 +183,10 @@ def _sse(payload: dict) -> str:
 
 
 _TOOL_DISPLAY_NAMES = {
-    "configure_lyrics_workflow": "配置歌词节点",
-    "configure_image_workflow": "配置图像节点",
+    "list_workflow_templates": "查看模板库",
+    "add_workflow_chains": "搭建创作链",
+    "update_chain_params": "调整链参数",
+    "remove_workflow_chain": "删除创作链",
     "run_current_workflow": "运行工作流",
     "clear_workflow_draft": "清空画布",
     "read_workflow_state": "读取画布",
@@ -194,6 +196,53 @@ _TOOL_DISPLAY_NAMES = {
     "get_current_time": "查询时间",
     "generate_lyrics_block": "生成歌词",
 }
+
+# 用户可见文本里的工具名→中文标签映射；不在表里的工具一律显示为「系统工具」
+_TOOL_NAME_LABELS = {
+    name: _TOOL_DISPLAY_NAMES.get(name, "系统工具") for name in tools_map
+}
+
+
+class _ToolNameScrubber:
+    """流式内容净化器：模型偶尔把内部工具函数名原样说给用户听
+    （2026-10-11 真机：「接下来可以调用 run_current_workflow 来执行」上屏，
+    追问建议又放大成「如何调用 run_current_workflow？」，观感像报错）。
+
+    一律在流出前换成中文标签。跨分片防护：模型可能把名字拆成
+    "run_cur" + "rent_workflow" 两片发出，所以尾部只要「可能是半个工具名」
+    就压住不吐，flush 时才清尾。替换后的文本同时用于流上屏、落库和
+    追问建议派生，三条口子同一份干净文本。
+    """
+
+    def __init__(self) -> None:
+        self._buf = ""
+
+    def feed(self, text: str) -> str:
+        if not text:
+            return ""
+        self._buf += text
+        return self._drain(final=False)
+
+    def flush(self) -> str:
+        return self._drain(final=True)
+
+    def _drain(self, final: bool) -> str:
+        scrubbed = self._buf
+        for name in sorted(_TOOL_NAME_LABELS, key=len, reverse=True):
+            scrubbed = scrubbed.replace(name, _TOOL_NAME_LABELS[name])
+        if final:
+            self._buf = ""
+            return scrubbed
+        keep = 0
+        for name in _TOOL_NAME_LABELS:
+            for cut in range(1, min(len(name), len(scrubbed)) + 1):
+                if scrubbed.endswith(name[:cut]):
+                    keep = max(keep, cut)
+        if keep:
+            emit, self._buf = scrubbed[:-keep], scrubbed[-keep:]
+        else:
+            emit, self._buf = scrubbed, ""
+        return emit
 
 
 def _summarize_tool_outcome(tool_name: str, outcome, model_result: str) -> dict:
@@ -400,6 +449,7 @@ async def _orchestrate(
 
             pending_tool_calls: dict[int, dict] = {}
             textual_tool_candidate = ""
+            scrubber = _ToolNameScrubber()
             # 兼容少数模型/代理把 function calling 错误降级成普通文本的情况。
             # 只暂存“像工具名开头”的前缀，普通回答仍逐 chunk 流出。
             async for delta in iterate_in_threadpool(stream):
@@ -409,8 +459,10 @@ async def _orchestrate(
                     if textual_tool_candidate:
                         fallback_call = parse_textual_tool_call(textual_tool_candidate)
                         if not fallback_call:
-                            reply += textual_tool_candidate
-                            yield _sse({"type": "content", "content": textual_tool_candidate})
+                            piece = scrubber.feed(textual_tool_candidate)
+                            if piece:
+                                reply += piece
+                                yield _sse({"type": "content", "content": piece})
                         textual_tool_candidate = ""
                     merge_tool_call_delta(pending_tool_calls, delta.tool_calls)
                     continue
@@ -421,10 +473,12 @@ async def _orchestrate(
                     elif _could_be_textual_tool_call_prefix(content):
                         textual_tool_candidate = content
                     else:
-                        if first_token_at is None:
-                            first_token_at = time.perf_counter()
-                        reply += content
-                        yield _sse({"type": "content", "content": content})
+                        piece = scrubber.feed(content)
+                        if piece:
+                            if first_token_at is None:
+                                first_token_at = time.perf_counter()
+                            reply += piece
+                            yield _sse({"type": "content", "content": piece})
 
             if textual_tool_candidate:
                 fallback_call = parse_textual_tool_call(textual_tool_candidate)
@@ -438,8 +492,17 @@ async def _orchestrate(
                 else:
                     if first_token_at is None:
                         first_token_at = time.perf_counter()
-                    reply += textual_tool_candidate
-                    yield _sse({"type": "content", "content": textual_tool_candidate})
+                    feeded = scrubber.feed(textual_tool_candidate)
+                    if feeded:
+                        reply += feeded
+                        yield _sse({"type": "content", "content": feeded})
+            # 收尾：把净化器里压住的尾巴吐出来（不吐=回复末尾半截咬在缓冲里）
+            trailer = scrubber.flush()
+            if trailer:
+                if first_token_at is None:
+                    first_token_at = time.perf_counter()
+                reply += trailer
+                yield _sse({"type": "content", "content": trailer})
 
             if not pending_tool_calls:
                 # 空谈检测：模型凭空声称“已排队/已配置”却一个工具都没调——
@@ -695,6 +758,12 @@ async def _generate_followups(user_message: str, reply: str) -> list[str]:
         if not isinstance(items, list):
             return []
         cleaned = [str(item).strip() for item in items if str(item).strip()]
+        # 建议若由含内部工具名的脏文本派生而来，直接丢弃该条（净化在源头，这里是兜网）
+        cleaned = [
+            item
+            for item in cleaned
+            if not any(name in item for name in _TOOL_NAME_LABELS)
+        ]
         return [item[:40] for item in cleaned[:3]]
     except Exception:
         logger.info("追问建议生成失败，本轮略过", extra={"evt": "followup_fallback"})

@@ -1,8 +1,9 @@
-"""Workflow Draft 和单链路 Runner。
+"""Workflow Draft、模板链构图与异步 Runner。
 
-- ``configure_capability``：Assistant 往 Draft 里创建/更新一个工具节点并自动连线。
-- ``run_workflow``：从 Input 出发按依赖顺序逐个执行能力节点，结果写回节点。
-图像、视频、音频能力暂时没有 Provider，Runner 如实标记 ``model_unavailable``。
+- 构图（WF1-①）：助手只能以模板为单位成链（``add_workflow_chains``），
+  连线由平台机械完成（各链共享 Input/Output 端点），多链并行互不干扰。
+- 执行：``submit_workflow_run`` 入队 → Worker 跑 ``_execute_snapshot_run``；
+  节点级成功快照（resolved 参数指纹）命中即复用上次结果，零调用零计费。
 """
 
 from __future__ import annotations
@@ -11,6 +12,8 @@ import asyncio
 import contextlib
 import contextvars
 import copy
+import hashlib
+import json
 import logging
 import re
 import time
@@ -20,12 +23,20 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from core.exceptions import AppError
 from repositories import workflow_repo, workflow_run_repo
 from schemas.capability import CapabilityResult
 from services import job_service
 from services.capabilities import CAPABILITY_REGISTRY, CapabilityContext, run_capability
 from services.project_service import get_project
+from services.workflow_templates import (
+    build_chain_params,
+    coalesce_dependency_specs,
+    describe_templates,
+    get_template,
+)
 
 logger = logging.getLogger("workflow")
 
@@ -85,6 +96,13 @@ CAPABILITY_META: dict[str, dict[str, Any]] = {
         "description": "把文字描述转成歌曲封面、角色设定和视觉概念图。",
         "color": "#d0d0d0",
     },
+    "video.generate": {
+        "type": "video",
+        "name": "视频生成",
+        "badge": "文字生视频",
+        "description": "把镜头与画面描述转成短视频片段（文生视频）。",
+        "color": "#a6a6a6",
+    },
 }
 
 
@@ -116,6 +134,10 @@ def empty_draft() -> dict[str, Any]:
         ],
         "edges": [],
         "endpointPositions": {"input": {"x": 36, "y": 280}},
+        # 链注册表（WF1-①）：chains=[] 条带号登记、chain_counter 单调不减只增不退——
+        # 删链不重排（留空号），防止对话中指代错位导致错删。
+        "chains": [],
+        "chain_counter": 0,
     }
 
 
@@ -138,11 +160,33 @@ def get_workflow_summary(user_id: int, project_id: int | None) -> dict[str, Any]
         {"source": e.get("source"), "target": e.get("target")}
         for e in current["draft"].get("edges", [])
     ]
+    chain_summary = []
+    for entry in _chain_registry(current["draft"]):
+        members = _chain_nodes(current["draft"], [str(i) for i in entry.get("node_ids", [])])
+        chain_summary.append(
+            {
+                "chain_no": entry.get("chain_no"),
+                "label": entry.get("label"),
+                "template_id": entry.get("template_id"),
+                "source": entry.get("source"),
+                "blocks": [
+                    {
+                        "node_id": n.get("id"),
+                        "type": n.get("type"),
+                        "name": n.get("name"),
+                        "run_status": n.get("runStatus"),
+                        "params": n.get("params"),
+                    }
+                    for n in members
+                ],
+            }
+        )
     return {
         "revision": current["revision"],
         "workflow_id": current["id"],
         "nodes": nodes,
         "edges": edges,
+        "chains": chain_summary,
         "node_count": len(nodes),
         "edge_count": len(edges),
     }
@@ -204,9 +248,31 @@ def save_draft(
             "WORKFLOW_BUSY：Workflow 正在运行，运行结束后会自动解锁，请稍后再编辑",
             status_code=409,
         )
+    # B30：没有活跃运行时，客户端不应声称任何节点还在 running——残留的僵尸状态会让
+    # 前端误判“运行中”（横幅 + 画布锁 + 无限轮询）。一律降级 idle，状态由下次真实运行重建。
+    for node in draft.get("nodes", []):
+        if isinstance(node, dict) and node.get("runStatus") == "running":
+            node["runStatus"] = "idle"
     _validate_draft_shape(draft)
+    # 前端只携带自己认识的字段回存：服务端字段（缓存快照/链编号/注册表）从旧草稿携带，
+    # 再把用户手搭的合法直线链补登记（链号从此用户/AI 混编、删后不退号）。
+    _carry_forward_server_owned(draft, current["draft"])
+    _sync_chain_registry(draft)
     saved = workflow_repo.upsert(user_id, project_id, expected_revision + 1, draft, _now())
     return {"id": saved["id"], "revision": saved["revision"], "draft": saved["draft"]}
+
+
+def _drop_orphan_running(draft: dict[str, Any], executing_ids: set[str]) -> None:
+    """把不在本次执行序列中的僵尸 running 归为 idle（B30 保险丝）。
+
+    runStatus 只有“被本次运行真正执行”的节点才允许是 running；断连节点、
+    中断残留留下的 running 没有任何代码路径会复位，会让前端的运行锁与
+    “运行中”横幅永久挂起（2026-10-06 实测复现）。运行启动与收尾各扫一次。
+    """
+    for node in draft.get("nodes", []):
+        if isinstance(node, dict) and node.get("runStatus") == "running" \
+                and node.get("id") not in executing_ids:
+            node["runStatus"] = "idle"
 
 
 def _validate_draft_shape(draft: dict[str, Any]) -> None:
@@ -258,180 +324,396 @@ def clear_workflow(
     return {"id": saved["id"], "revision": revision, "draft": draft}
 
 
-def _wire_node(
-    draft: dict[str, Any],
-    node_id: str,
-    upstream_node_id: str | None = None,
-) -> None:
-    """连接一个能力节点。
+# ---------- 链注册表（WF1-①：链是一等公民，按建成时间标号，删后不重排） ----------
 
-    - 不传 upstream：默认挂到 Input → 节点 → Output（最小独立流程）。
-    - 传了 upstream：把节点接到 upstream 之后；若原图是 upstream → Output，则
-      把链尾顺延为 节点 → Output，形成 Input → … → upstream → 节点 → Output。
+
+def _chain_registry(draft: dict[str, Any]) -> list[dict[str, Any]]:
+    return draft.setdefault("chains", [])
+
+
+def _chain_counter(draft: dict[str, Any]) -> int:
+    return int(draft.setdefault("chain_counter", 0))
+
+
+def _spec_digest(template_id: str, params_list: list[dict[str, Any]]) -> str:
+    """链的指纹 = 模板 + 默认值应用后的全部参数；重复链检测只认指纹。"""
+    payload = {"t": template_id, "p": params_list}
+    return hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True).encode()
+    ).hexdigest()[:16]
+
+
+def _chain_nodes(draft: dict[str, Any], node_ids: list[str]) -> list[dict[str, Any]]:
+    by_id = {str(n.get("id")): n for n in draft.get("nodes", []) if isinstance(n, dict)}
+    return [by_id[nid] for nid in node_ids if nid in by_id]
+
+
+def _sync_chain_registry(draft: dict[str, Any]) -> None:
+    """登记簿对账：清退节点尽失的旧链；检测用户手搭的合法直线链并补登记。
+
+    合法直线链 = 从 Input 出发、每个中间节点一进一出、最终落在 Output 的通路；
+    分叉/进链/未接 Output 的自由图不登记（它们只是画布上的半成品/高级玩法）。
+    号源单调只增：删链只退位不退号。
     """
-    edges = draft.setdefault("edges", [])
-    valid_sources = {INPUT_ID} | {
-        str(n.get("id")) for n in draft.get("nodes", []) if isinstance(n, dict)
+    nodes = [n for n in draft.get("nodes", []) if isinstance(n, dict)]
+    by_id = {str(n.get("id")): n for n in nodes}
+    registry = _chain_registry(draft)
+    registry[:] = [
+        entry
+        for entry in registry
+        if _chain_nodes(draft, [str(nid) for nid in entry.get("node_ids", [])])
+    ]
+    known = {
+        str(nid)
+        for entry in registry
+        for nid in entry.get("node_ids", [])
     }
-    if upstream_node_id is None:
-        _ensure_edge(draft, INPUT_ID, node_id)
-        _ensure_edge(draft, node_id, OUTPUT_ID)
-        return
-    if upstream_node_id not in valid_sources or upstream_node_id == OUTPUT_ID:
-        raise AppError("upstream 不存在或不可作为上游", status_code=422)
+    edges = draft.get("edges", [])
 
-    # 新接线前清掉现有入边，保证每个节点只有一个主输入（当前阶段的约束）
-    edges[:] = [edge for edge in edges if edge.get("target") != node_id]
-    existing_tail = next(
-        (
-            edge
-            for edge in edges
-            if edge.get("source") == upstream_node_id and edge.get("target") == OUTPUT_ID
-        ),
-        None,
-    )
-    has_outgoing = any(edge.get("source") == node_id for edge in edges)
-    _ensure_edge(draft, upstream_node_id, node_id)
-    if existing_tail is not None and not has_outgoing:
-        edges.remove(existing_tail)
-        _ensure_edge(draft, node_id, OUTPUT_ID)
+    def outs(node_id: str) -> list[str]:
+        return [str(e.get("target")) for e in edges if str(e.get("source")) == node_id]
+
+    def ins(node_id: str) -> list[str]:
+        return [str(e.get("source")) for e in edges if str(e.get("target")) == node_id]
+
+    counter = _chain_counter(draft)
+    for head_id in outs(INPUT_ID):
+        if head_id in known or head_id not in by_id:
+            continue
+        node_ids: list[str] = []
+        current_id, legal = head_id, False
+        while True:
+            node = by_id.get(current_id)
+            if node is None or node.get("kind") == "endpoint":
+                legal = current_id == OUTPUT_ID and bool(node_ids)
+                break
+            node_ids.append(current_id)
+            nexts = outs(current_id)
+            if len(nexts) != 1:
+                break
+            if nexts[0] == OUTPUT_ID:
+                legal = True
+                break
+            if len(ins(nexts[0])) != 1:
+                break
+            current_id = nexts[0]
+        if not legal:
+            continue
+        counter += 1
+        names = [str(by_id[nid].get("name") or nid) for nid in node_ids]
+        registry.append(
+            {
+                "chain_no": counter,
+                "chain_id": f"chain-{uuid.uuid4().hex[:8]}",
+                "label": "、".join(names),
+                "template_id": None,
+                "spec_hash": None,
+                "node_ids": node_ids,
+                "source": "user",
+                "created_at": _now(),
+            }
+        )
+        known.update(node_ids)
+    draft["chain_counter"] = counter
 
 
-def configure_capability(
+def _carry_forward_server_owned(draft: dict[str, Any], previous: dict[str, Any]) -> None:
+    """前端回存草稿时只携带自己认识的字段；服务端字段（缓存快照/链编号/resolved
+    参数/链注册表）从旧草稿原样携带，杜绝前端“无心销毁”服务端状态。"""
+    prev_by_id = {
+        str(n.get("id")): n for n in previous.get("nodes", []) if isinstance(n, dict)
+    }
+    for node in draft.get("nodes", []):
+        old = prev_by_id.get(str(node.get("id", "")))
+        if old is None:
+            continue
+        for key in ("checkpoint", "chain_id", "chain_no", "resolved_params"):
+            if key in old:
+                node[key] = old[key]
+    previous_chains = previous.get("chains")
+    if previous_chains is not None and "chains" not in draft:
+        draft["chains"] = previous_chains
+    if "chain_counter" not in draft:
+        draft["chain_counter"] = previous.get("chain_counter", 0)
+
+
+# ---------- 模板链构图（助手侧唯一构图入口） ----------
+
+
+def list_templates() -> list[dict[str, Any]]:
+    return describe_templates()
+
+
+def _as_capability_id(capability_or_type: str) -> str:
+    """工具入参允许 'lyrics'/'image'/'video' 或全名，归一为 capability_id。"""
+    alias = {"lyrics": "lyrics.generate", "image": "image.generate", "video": "video.generate"}
+    return alias.get(capability_or_type, capability_or_type)
+
+
+def add_workflow_chains(
     user_id: int,
     project_id: int | None,
-    capability_id: str,
-    tool_type: str,
-    params: dict[str, Any],
-    upstream_node_id: str | None = None,
+    chain_specs: list[dict[str, Any]],
+    confirm_duplicates: bool = False,
 ) -> dict[str, Any]:
-    """创建或更新一个能力节点；支持把它接到既有链尾或默认 Input。"""
-    _check_project_owner(user_id, project_id)
-    meta = CAPABILITY_META.get(capability_id)
-    if meta is None:
-        raise AppError(f"未知的生产能力: {capability_id}")
-    params, referenced_upstream = _normalize_upstream_refs(params)
+    """按模板成批新增链；默认不动存量链，只追加。
 
-    # 运行期间允许 configure（续命路径：模型可以在等上一跑结束后继续加节点），
-    # 但写入必须走 CAS：与 Runner 的每节点回写并发时丢更新 = 双图像节点事故的根因。
+    原子语义：任何一条链校验不过，整批不落库。重复链不硬拦（删改留归用户），
+    报 422 DUPLICATE_CHAINS 让助手转述给用户核对，用户确认后带
+    ``confirm_duplicates=True`` 重试。
+    """
+    _check_project_owner(user_id, project_id)
+    # 平台确定性纠偏（2026-10-11）：模型把「依词构图」拆成 lyrics_only + 视觉原子的
+    # 同批声明时，直接纠错合并为复合模板，拒绝让它赌「自己改得对」（评测实测改不对）。
+    chain_specs, merged_note = coalesce_dependency_specs(chain_specs)
+    if not chain_specs:
+        raise AppError("至少要声明一条链", status_code=422)
+    if len(chain_specs) > 4:
+        raise AppError("单次最多新增 4 条链；更多请先和用户确认成本", status_code=422)
+
+    prepared: list[dict[str, Any]] = []
+    for spec in chain_specs:
+        template_id = str(spec.get("template_id", ""))
+        template = get_template(template_id)
+        if template is None:
+            raise AppError(
+                f"未知模板「{template_id}」；先调用 list_workflow_templates 查看可用模板",
+                status_code=422,
+            )
+        params_list, build_error = build_chain_params(template, dict(spec.get("slots") or {}))
+        if build_error:
+            raise AppError(build_error, status_code=422)
+        validated: list[dict[str, Any]] = []
+        for capability_id, params in zip(template.blocks, params_list or [], strict=True):
+            entry = CAPABILITY_REGISTRY[capability_id]
+            try:
+                validated.append(entry.input_model.model_validate(params).model_dump())
+            except ValidationError as exc:
+                first = exc.errors()[0]
+                raise AppError(
+                    f"模板「{template.name}」槽位不合法：参数 {first.get('loc')} {first.get('msg')}",
+                    status_code=422,
+                ) from exc
+        label = (str(spec.get("label") or "").strip() or template.name)[:30]
+        prepared.append(
+            {
+                "template_id": template.template_id,
+                "template_name": template.name,
+                "blocks": template.blocks,
+                "params_list": validated,
+                "label": label,
+                "spec_hash": _spec_digest(template.template_id, validated),
+            }
+        )
+
+    current = get_draft(user_id, project_id)
+    if not confirm_duplicates:
+        existing = {
+            entry["spec_hash"]: entry
+            for entry in _chain_registry(current["draft"])
+            if entry.get("spec_hash")
+        }
+        seen: dict[str, str] = {}
+        for item in prepared:
+            digest = item["spec_hash"]
+            clash = existing.get(digest)
+            if clash is not None:
+                raise AppError(
+                    f"DUPLICATE_CHAINS：新链与现有「链{clash['chain_no']} · "
+                    f"{clash.get('label') or clash.get('template_id')}」完全重复"
+                    "（同模板同参数），重跑一遍只会产生额外开销、结果不会更好。"
+                    "请如实提醒用户核对：是要重跑那条链、改参数出变体，还是确实需要再建一条相同链。"
+                    "用户明确确认后，带 confirm_duplicates=true 重试本调用。",
+                    status_code=422,
+                )
+            if digest in seen:
+                raise AppError(
+                    f"DUPLICATE_CHAINS：本批声明里「{item['label']}」与「{seen[digest]}」完全重复，"
+                    "请如实提醒用户核对是否真需要两条相同的链；确认后带 confirm_duplicates=true 重试。",
+                    status_code=422,
+                )
+            seen[digest] = item["label"]
+
     holder: dict[str, Any] = {}
 
     def mutate(draft: dict[str, Any]) -> None:
         _ensure_canvas_read(user_id, project_id, draft)
-        nodes = draft.get("nodes", [])
-        # 同 capability 只保留一个实例：多余的连同连接线一起清除，避免并联残留
-        same_capability_ids = [
-            item.get("id")
-            for item in nodes
-            if isinstance(item, dict) and item.get("capability_id") == capability_id
-        ]
-        drop_ids = set(same_capability_ids[1:])
-        if drop_ids:
-            draft["nodes"] = [item for item in nodes if item.get("id") not in drop_ids]
-            draft["edges"] = [
-                edge
-                for edge in draft.get("edges", [])
-                if edge.get("source") not in drop_ids and edge.get("target") not in drop_ids
-            ]
+        registry = _chain_registry(draft)
+        counter = _chain_counter(draft)
+        created: list[dict[str, Any]] = []
+        for offset, item in enumerate(prepared):
+            counter += 1
+            chain_id = f"chain-{uuid.uuid4().hex[:8]}"
+            node_ids: list[str] = []
+            prev_id = INPUT_ID
+            for block_index, capability_id in enumerate(item["blocks"]):
+                meta = CAPABILITY_META[capability_id]
+                tool_type = meta["type"]
+                node = {
+                    "id": f"workflow-node-{tool_type}-{uuid.uuid4().hex[:10]}",
+                    "kind": "tool",
+                    "toolId": f"assistant-{tool_type}-{uuid.uuid4().hex[:10]}",
+                    "type": tool_type,
+                    "capability_id": capability_id,
+                    "name": meta["name"],
+                    "badge": meta["badge"],
+                    "description": meta["description"],
+                    "color": meta["color"],
+                    "chain_id": chain_id,
+                    "chain_no": counter,
+                    "x": 300 + 320 * block_index,
+                    "y": 280 + 260 * (len(registry) + offset),
+                    "params": item["params_list"][block_index],
+                    "runStatus": "idle",
+                    "result": None,
+                    "candidates": [],
+                }
+                draft.setdefault("nodes", []).append(node)
+                _ensure_edge(draft, prev_id, node["id"])
+                prev_id = node["id"]
+                node_ids.append(node["id"])
+            _ensure_edge(draft, prev_id, OUTPUT_ID)
+            registry.append(
+                {
+                    "chain_no": counter,
+                    "chain_id": chain_id,
+                    "label": item["label"],
+                    "template_id": item["template_id"],
+                    "spec_hash": item["spec_hash"],
+                    "node_ids": node_ids,
+                    "source": "assistant",
+                    "created_at": _now(),
+                }
+            )
+            created.append(
+                {
+                    "chain_no": counter,
+                    "chain_id": chain_id,
+                    "label": item["label"],
+                    "template_id": item["template_id"],
+                    "blocks": [b.split(".")[0] for b in item["blocks"]],
+                }
+            )
+        draft["chain_counter"] = counter
+        holder["created"] = created
+
+    saved = _mutate_draft_with_cas(user_id, project_id, mutate)
+    return {
+        "id": saved["id"],
+        "revision": saved["revision"],
+        "draft": saved["draft"],
+        "chains": holder["created"],
+        "merged_note": merged_note,
+    }
+
+
+def update_chain_params(
+    user_id: int,
+    project_id: int | None,
+    chain_no: int,
+    capability_or_type: str,
+    params: dict[str, Any],
+) -> dict[str, Any]:
+    """按链号改某个 Block 的参数（增量合并）；改过的节点复位待跑，缓存由参数指纹接管。"""
+    _check_project_owner(user_id, project_id)
+    capability_id = _as_capability_id(capability_or_type)
+    if capability_id not in CAPABILITY_REGISTRY:
+        raise AppError(f"未知的生产能力: {capability_or_type}", status_code=422)
+    holder: dict[str, Any] = {}
+
+    def mutate(draft: dict[str, Any]) -> None:
+        _ensure_canvas_read(user_id, project_id, draft)
+        entry = next(
+            (c for c in _chain_registry(draft) if c.get("chain_no") == chain_no),
+            None,
+        )
+        if entry is None:
+            raise AppError(
+                f"画布上没有链 {chain_no}；先调用 read_workflow_state 核对现有链号",
+                status_code=404,
+            )
         node = next(
-            (item for item in draft.get("nodes", []) if item.get("capability_id") == capability_id),
+            (
+                n
+                for n in _chain_nodes(draft, [str(nid) for nid in entry.get("node_ids", [])])
+                if n.get("capability_id") == capability_id
+            ),
             None,
         )
         if node is None:
-            node = {
-                "id": f"workflow-node-{tool_type}-{uuid.uuid4().hex[:10]}",
-                "kind": "tool",
-                "toolId": f"assistant-{tool_type}-{uuid.uuid4().hex[:10]}",
-                "type": tool_type,
-                "capability_id": capability_id,
-                **meta,
-                "x": position_x_for_index(len([n for n in draft.get("nodes", []) if n.get("kind") != "endpoint"])),
-                "y": 280,
-            }
-            # capability meta 字段已包含 name/badge/description/color，去掉 type 重复
-            node.pop("type", None)
-            node["type"] = tool_type
-            draft.setdefault("nodes", []).append(node)
-        # 重新配置参数 => 旧结果作废；无论是否中途加进来，一律复位待跑
+            raise AppError(
+                f"链 {chain_no}（{entry.get('label')}）里没有 {capability_id.split('.')[0]} 环节",
+                status_code=422,
+            )
+        merged = {**(node.get("params") or {}), **params}
+        try:
+            merged = CAPABILITY_REGISTRY[capability_id].input_model.model_validate(merged).model_dump()
+        except ValidationError as exc:
+            first = exc.errors()[0]
+            raise AppError(
+                f"参数不合法：{first.get('loc')} {first.get('msg')}", status_code=422
+            ) from exc
+        node["params"] = merged
         node["runStatus"] = "idle"
-        # 参数增量合并：模型常常只传“要改的字段”，整包覆盖会把没改的字段抹成空
-        # （实测：只说“比例换 1:1”就会丢掉 prompt/style）
-        node["params"] = {**(node.get("params") or {}), **params}
         node["result"] = None
-        _wire_node(draft, node["id"], upstream_node_id)
-        if referenced_upstream:
-            inbound = [
-                edge
-                for edge in draft.get("edges", [])
-                if edge.get("target") == node["id"] and edge.get("source") != INPUT_ID
-            ]
-            if not inbound:
-                raise AppError(
-                    "检测到参数引用了上游结果，但该节点没有任何上游连线，运行时无法取到歌词。"
-                    "请先调用 read_workflow_state 读画布，再用 upstream_node_id=上游节点 id 串联后重试。",
-                    status_code=422,
-                )
+        node["error"] = None
+        if entry.get("template_id"):
+            entry["spec_hash"] = _spec_digest(
+                str(entry["template_id"]),
+                [
+                    n.get("params") or {}
+                    for n in _chain_nodes(draft, [str(i) for i in entry.get("node_ids", [])])
+                ],
+            )
         holder["node_id"] = node["id"]
+        holder["label"] = entry.get("label")
 
     saved = _mutate_draft_with_cas(user_id, project_id, mutate)
-    return {"id": saved["id"], "revision": saved["revision"], "draft": saved["draft"], "node_id": holder["node_id"]}
+    return {
+        "id": saved["id"],
+        "revision": saved["revision"],
+        "draft": saved["draft"],
+        "node_id": holder["node_id"],
+        "chain_no": chain_no,
+        "label": holder["label"],
+    }
 
 
-def configure_lyrics(
-    user_id: int,
-    project_id: int | None,
-    inputs: dict[str, Any],
-    upstream_node_id: str | None = None,
-) -> dict[str, Any]:
-    from schemas.capability import LyricsGenerateInput
+def remove_workflow_chain(user_id: int, project_id: int | None, chain_no: int) -> dict[str, Any]:
+    """按链号整条删除；链号退役不复用（防对话指代错位错删）。"""
+    _check_project_owner(user_id, project_id)
+    holder: dict[str, Any] = {}
 
-    validated = LyricsGenerateInput.model_validate(inputs)
-    return configure_capability(
-        user_id,
-        project_id,
-        "lyrics.generate",
-        "lyrics",
-        validated.model_dump(),
-        upstream_node_id,
-    )
+    def mutate(draft: dict[str, Any]) -> None:
+        _ensure_canvas_read(user_id, project_id, draft)
+        registry = _chain_registry(draft)
+        entry = next((c for c in registry if c.get("chain_no") == chain_no), None)
+        if entry is None:
+            raise AppError(
+                f"画布上没有链 {chain_no}；先调用 read_workflow_state 核对现有链号",
+                status_code=404,
+            )
+        drop_ids = {str(nid) for nid in entry.get("node_ids", [])}
+        draft["nodes"] = [
+            n for n in draft.get("nodes", []) if str(n.get("id")) not in drop_ids
+        ]
+        draft["edges"] = [
+            e
+            for e in draft.get("edges", [])
+            if str(e.get("source")) not in drop_ids and str(e.get("target")) not in drop_ids
+        ]
+        registry.remove(entry)
+        holder["label"] = entry.get("label")
 
+    saved = _mutate_draft_with_cas(user_id, project_id, mutate)
+    return {
+        "id": saved["id"],
+        "revision": saved["revision"],
+        "draft": saved["draft"],
+        "removed_chain_no": chain_no,
+        "label": holder["label"],
+    }
 
-def configure_image(
-    user_id: int,
-    project_id: int | None,
-    inputs: dict[str, Any],
-    upstream_node_id: str | None = None,
-) -> dict[str, Any]:
-    from schemas.capability import ImageGenerateInput
-
-    validated = ImageGenerateInput.model_validate(inputs)
-    return configure_capability(
-        user_id,
-        project_id,
-        "image.generate",
-        "image",
-        validated.model_dump(),
-        upstream_node_id,
-    )
-
-
-def configure_video(
-    user_id: int,
-    project_id: int | None,
-    inputs: dict[str, Any],
-    upstream_node_id: str | None = None,
-) -> dict[str, Any]:
-    from schemas.capability import VideoGenerateInput
-
-    validated = VideoGenerateInput.model_validate(inputs)
-    return configure_capability(
-        user_id,
-        project_id,
-        "video.generate",
-        "video",
-        validated.model_dump(),
-        upstream_node_id,
-    )
 
 
 def _execution_order(draft: dict[str, Any]) -> list[dict[str, Any]]:
@@ -468,18 +750,6 @@ UPSTREAM_RESULT_PATTERN = "${upstream.result.content}"
 # 模型会发明各种上游引用写法（如 ${workflow-node-xxx.result.content}）；
 # 一律归一化为上面的规范形态，且在配置期必须看到真的有上游连线。
 UPSTREAM_REF_RE = re.compile(r"\$\{[^}]*?\.result\.content\}")
-
-
-def _normalize_upstream_refs(params: dict[str, Any]) -> tuple[dict[str, Any], bool]:
-    """把任意 `${xxx.result.content}` 写法统一为规范引用；返回（新参数, 是否引用了上游）。"""
-    normalized: dict[str, Any] = {}
-    referenced = False
-    for key, value in params.items():
-        if isinstance(value, str) and UPSTREAM_REF_RE.search(value):
-            referenced = True
-            value = UPSTREAM_REF_RE.sub(UPSTREAM_RESULT_PATTERN, value)
-        normalized[key] = value
-    return normalized, referenced
 
 
 def _upstream_content(upstream_node: dict[str, Any]) -> str | None:
@@ -584,6 +854,8 @@ async def run_workflow(user_id: int, project_id: int | None) -> dict[str, Any]:
 
     for node in ordered:
         node["runStatus"] = "running"
+    executing_ids = {node["id"] for node in ordered}
+    _drop_orphan_running(draft, executing_ids)
     run_id = f"run-{uuid.uuid4().hex[:12]}"
     running_saved = await asyncio.to_thread(
         workflow_repo.upsert, user_id, project_id, current["revision"] + 1, draft, _now()
@@ -622,6 +894,7 @@ async def run_workflow(user_id: int, project_id: int | None) -> dict[str, Any]:
             final_status = "failed" if result.status == "failed" else "model_unavailable"
 
     latest = await asyncio.to_thread(get_draft, user_id, project_id)
+    _drop_orphan_running(latest["draft"], executing_ids)
     latest_by_id = {n.get("id"): n for n in latest["draft"].get("nodes", [])}
     for node in ordered:
         latest_node = latest_by_id.get(node["id"])
@@ -832,6 +1105,42 @@ def submit_workflow_run(user_id: int, project_id: int | None) -> dict[str, Any]:
     }
 
 
+# ---------- 节点级成功快照缓存（WF1-① 拍板⑥：参数没变就复用，零调用零计费） ----------
+
+
+def _params_fingerprint(capability_id: str, resolved_params: dict[str, Any]) -> str:
+    """快照指纹：生效参数 + 能力 + 计费模型名（Provider 换型号也要重跑）。
+
+    指纹基于 resolved（引用已代入）参数：上游重跑后产出文本变了，下游指纹
+    自动变、自动重跑；产出恰好一样则下游也跳过——「从首个被改的节点起跑」
+    语义的哈希实现。
+    """
+    model = ""
+    entry = CAPABILITY_REGISTRY.get(capability_id)
+    if entry is not None:
+        try:
+            model = entry.billing_model()
+        except Exception:
+            model = ""
+    payload = json.dumps(
+        {"cap": capability_id, "model": model, "params": resolved_params},
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
+def _reusable_content(node: dict[str, Any]) -> str | None:
+    """节点已有、可直接喂下游的内容：先按「多版本必须手选」规则从候选取，退化用旧 result。"""
+    content = _upstream_content(node)
+    if content is not None:
+        return content
+    result = node.get("result")
+    if isinstance(result, dict) and isinstance(result.get("content"), str):
+        return result["content"]
+    return None
+
+
 async def _execute_snapshot_run(
     user_id: int, project_id: int | None, run_id: str, draft_snapshot: dict[str, Any]
 ) -> dict[str, Any]:
@@ -846,6 +1155,7 @@ async def _execute_snapshot_run(
             raise AppError(f"未注册的能力: {capability_id}")
 
     node_outputs: dict[str, dict[str, Any]] = {}
+    reused_nodes: list[str] = []
     first_error: str | None = None
     final_status = "succeeded"
 
@@ -884,6 +1194,38 @@ async def _execute_snapshot_run(
             first_error = first_error or f"{node.get('name')}: {params_error}"
             final_status = "failed"
             continue
+        fingerprint = _params_fingerprint(node["capability_id"], resolved_params)
+        checkpoint = node.get("checkpoint") or {}
+        reusable = _reusable_content(node)
+        if checkpoint.get("params_hash") == fingerprint and reusable is not None:
+            # 节点级快照命中：参数没变且上次结果还在——零调用、零计费、零 usage 记录。
+            workflow_run_repo.finish_step(
+                step["id"], "reused", {"content": reusable, "reused": True}, None
+            )
+            existing_result = node.get("result")
+            node_outputs[node["id"]] = (
+                existing_result if isinstance(existing_result, dict) else {"content": reusable}
+            )
+
+            def write_reuse(
+                live_draft: dict[str, Any],
+                _node_id: str = str(node["id"]),
+                _resolved: dict[str, Any] = resolved_params,
+            ) -> None:
+                live = next(
+                    (n for n in live_draft.get("nodes", []) if str(n.get("id")) == _node_id),
+                    None,
+                )
+                if live is not None:
+                    # 提交时全链标记 running；复用节点要如实归位，不能让画布假跑
+                    live["runStatus"] = "succeeded"
+                    live["resolved_params"] = _resolved
+                    live["error"] = None
+                    live["reused"] = True
+
+            await asyncio.to_thread(_mutate_draft_with_cas, user_id, project_id, write_reuse)
+            reused_nodes.append(str(node["id"]))
+            continue
         result = await run_capability(
             node["capability_id"],
             resolved_params,
@@ -900,6 +1242,7 @@ async def _execute_snapshot_run(
             _node_id: str = str(node["id"]),
             _result=result,
             _resolved: dict[str, Any] = resolved_params,
+            _fingerprint: str = fingerprint,
         ) -> None:
             live = next(
                 (n for n in live_draft.get("nodes", []) if str(n.get("id")) == _node_id),
@@ -911,6 +1254,13 @@ async def _execute_snapshot_run(
             live["result"] = _result.result
             live["error"] = _result.error
             live["resolved_params"] = _resolved
+            live["reused"] = False
+            # 成功才立快照（供下次命中复用）；失败清快照防“残缺结果”被复用
+            live["checkpoint"] = (
+                {"params_hash": _fingerprint, "ran_at": _now()}
+                if _result.status == "succeeded"
+                else None
+            )
             _append_candidate(live, _result)
 
         await asyncio.to_thread(_mutate_draft_with_cas, user_id, project_id, write_status)
@@ -931,6 +1281,7 @@ async def _execute_snapshot_run(
         "status": final_status,
         "error": first_error,
         "executed": [n["id"] for n in ordered],
+        "reused": reused_nodes,
     }
 
 

@@ -54,8 +54,8 @@ def _create_user(uid: int) -> None:
 def test_succeeded_run_inserts_system_notice(db):
     _create_user(910)
     workflow_service.mark_canvas_read(910, None)
-    workflow_service.configure_lyrics(
-        910, None, {"theme": "海边", "style": "城市民谣", "mood": "温柔、克制", "language": "中文"}
+    workflow_service.add_workflow_chains(
+        910, None, [{"template_id": "lyrics_only", "slots": {"theme": "海边", "style": "城市民谣"}}]
     )
     submission = workflow_service.submit_workflow_run(910, None)
 
