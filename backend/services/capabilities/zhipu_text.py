@@ -1,20 +1,22 @@
-"""智谱文本 Provider。
+"""文本能力 Provider（歌词）：走 LLM ChatClient 抽象层，不再绑智谱 SDK。
+
+历史背景：本模块旧名是「智谱文本 Provider」，直连 zhipuai SDK。C12 后抽象层
+就位（ChatClient 协议 + factory），歌词与聊天主模型共用同一入口——
+切换 Provider 只改 LLM_PROVIDER/CHAT_MODEL 环境变量，本文件零改动。
+usage 仍由 ChatReply.usage 透传回账本（Provider 不给就给 0，不捏造）。
 
 API Key 和模型名只从后端配置读取；前端和工具调用参数不能覆盖它们。
 """
 
 from __future__ import annotations
 
-from typing import Any
-
-from zhipuai import ZhipuAI
-
 from core import config
 from schemas.capability import LyricsGenerateInput
+from services.llm.factory import get_chat_client
 
 
 class ModelNotConfiguredError(RuntimeError):
-    """平台没有配置歌词模型。"""
+    """平台没有配置歌词/文本模型。"""
 
 
 LYRICS_SYSTEM_PROMPT = """你是 Neyria 平台的歌词创作能力。
@@ -25,17 +27,10 @@ LYRICS_SYSTEM_PROMPT = """你是 Neyria 平台的歌词创作能力。
 """
 
 
-def load_lyrics_model() -> Any | None:
-    """加载平台托管的歌词模型；未配置 API Key 时返回 None。"""
-    if not config.API_KEY:
-        return None
-    return ZhipuAI(api_key=config.API_KEY)
-
-
 def generate_lyrics_text(inputs: LyricsGenerateInput) -> dict:
-    """同步调用智谱，调用方负责把它放入线程池；返回 {content, usage}，usage 供账本落库。"""
-    model = load_lyrics_model()
-    if model is None:
+    """同步调用平台托管文本模型（调用方负责把它放入线程池）；返回 {content, usage}。"""
+    client = get_chat_client()
+    if client is None:
         raise ModelNotConfiguredError("歌词模型未配置")
 
     user_prompt = (
@@ -45,26 +40,23 @@ def generate_lyrics_text(inputs: LyricsGenerateInput) -> dict:
         f"语言：{inputs.language}\n\n"
         "请直接创作歌词，不要解释创作过程。"
     )
-    response = model.chat.completions.create(
+    reply = client.complete(
         model=config.LYRICS_MODEL,
         messages=[
             {"role": "system", "content": LYRICS_SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ],
-        temperature=0.85,
-        max_tokens=1800,
-        stream=False,
     )
-    content = response.choices[0].message.content if response.choices else None
-    if not content or not content.strip():
+    content = (reply.content or "").strip()
+    if not content:
         raise RuntimeError("歌词模型返回空内容")
-    usage = getattr(response, "usage", None)
+    usage = reply.usage or {}
     return {
-        "content": content.strip(),
+        "content": content,
         "usage": {
             "model": config.LYRICS_MODEL,
-            "prompt_tokens": int(getattr(usage, "prompt_tokens", 0) or 0),
-            "completion_tokens": int(getattr(usage, "completion_tokens", 0) or 0),
-            "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
+            "prompt_tokens": int(usage.get("prompt_tokens", 0) or 0),
+            "completion_tokens": int(usage.get("completion_tokens", 0) or 0),
+            "total_tokens": int(usage.get("total_tokens", 0) or 0),
         },
     }

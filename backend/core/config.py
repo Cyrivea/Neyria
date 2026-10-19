@@ -43,6 +43,16 @@ API_KEY = os.getenv("API_KEY", "").strip()
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "zhipu").strip()
 CHAT_MODEL = os.getenv("CHAT_MODEL", "glm-4-flash").strip()
 LYRICS_MODEL = os.getenv("LYRICS_MODEL", "glm-4-flash").strip()
+
+# Kunbot 网关（ant.kunbot.org，OpenAI 兼容聚合层）。文本路由会随时被改挂新模型
+# （适配层发现清单后自助落到首项）；图像路由 /7sref 走 OpenAI images 端点。
+# 视频在该网关没有路由，视频 Block 继续走 SiliconFlow Wan2.2，不动。
+KUNBOT_API_KEY = os.getenv("KUNBOT_API_KEY", "").strip()
+KUNBOT_CHAT_BASE = os.getenv("KUNBOT_CHAT_BASE", "https://anthropic.kunbot.org/uni/v1").strip()
+KUNBOT_IMAGE_BASE = os.getenv("KUNBOT_IMAGE_BASE", "https://anthropic.kunbot.org/7sref/v1").strip()
+IMAGE_PROVIDER = os.getenv("IMAGE_PROVIDER", "siliconflow").strip()
+IMAGE_MODEL_KUNBOT = os.getenv("IMAGE_MODEL_KUNBOT", "gpt-image-2").strip()
+
 # 图像走 SiliconFlow Kolors（中文友好；该账号 FLUX 被禁用）
 IMAGE_MODEL = os.getenv("IMAGE_MODEL", "Kwai-Kolors/Kolors").strip()
 VIDEO_MODEL = os.getenv("VIDEO_MODEL", "Wan-AI/Wan2.2-T2V-A14B").strip()

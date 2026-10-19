@@ -36,10 +36,14 @@ class StreamDelta:
 
 @dataclass
 class ChatReply:
-    """非流式完整回复：文本 + 可选的工具调用列表（evaluate/scenario 类脚本需要）。"""
+    """非流式完整回复：文本 + 可选工具调用列表（evaluate/场景类脚本需要）。
+
+    usage 是透明的账本透传通道（歌词/意图分类等 owns 自己的 token 记账），
+    Provider 没给就给 None；调用方绝不允许凭 None 捏造数字（宁缺不造假）。"""
 
     content: str | None
     tool_calls: list[ToolCallDelta] = field(default_factory=list)
+    usage: dict[str, int] | None = None
 
 
 class LLMStream(Protocol):

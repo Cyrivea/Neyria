@@ -15,8 +15,11 @@ from services.llm.types import ChatClient
 
 logger = logging.getLogger("llm_factory")
 
-_BUILDERS: dict[str, str] = {  # provider → 需要的密钥环境位（config 上的属性名）
-    "zhipu": "API_KEY",
+# provider → (密钥属性名, 基础 URL 属性名)。zhipu 走 SDK（base 不适用）；
+# openai = 任意 OpenAI 兼容网关（Kunbot、别家中转站均可复用，只换 env）。
+_BUILDERS: dict[str, tuple[str, str | None]] = {
+    "zhipu": ("API_KEY", None),
+    "openai": ("KUNBOT_API_KEY", "KUNBOT_CHAT_BASE"),
 }
 
 _instance: ChatClient | None = None
@@ -30,14 +33,21 @@ def get_chat_client() -> ChatClient | None:
     provider = config.LLM_PROVIDER
     if provider not in _BUILDERS:
         raise ValueError(f"未知 LLM_PROVIDER={provider!r}，可选：{sorted(_BUILDERS)}")
-    key = getattr(config, _BUILDERS[provider], "")
+    key_attr, base_attr = _BUILDERS[provider]
+    key = getattr(config, key_attr, "")
     if not key:
-        logger.warning("LLM 密钥缺失，聊天能力不可用（%s 未配置）", _BUILDERS[provider])
+        logger.warning("LLM 密钥缺失，聊天能力不可用（%s 未配置）", key_attr)
         _instance = None
     elif provider == "zhipu":
         from services.llm.zhipu import ZhipuChatClient
 
         _instance = ZhipuChatClient(key)
+    elif provider == "openai":
+        from services.llm.openai_compat import OpenAICompatChatClient
+
+        _instance = OpenAICompatChatClient(key, getattr(config, base_attr or "", ""))
+    else:  # pragma: no cover - 注册表外的 provider 在守卫处早就被拦了
+        raise ValueError(f"未知 LLM_PROVIDER={provider!r}，可选：{sorted(_BUILDERS)}")
     _loaded = True
     return _instance
 

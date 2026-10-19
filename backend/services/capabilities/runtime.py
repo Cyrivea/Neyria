@@ -176,12 +176,24 @@ def _lyrics_executor(inputs: BaseModel) -> dict:
 
 
 def _image_executor(inputs: BaseModel) -> dict:
-    """真实图像 Provider（SiliconFlow Kolors）。没配 KEY 仍会走 ModelNotConfiguredError 支路。"""
+    """图像 Provider 分流：siliconflow（Kolors，默认） / kunbot（gpt-image 系）。
+
+    Provider 选择是平台侧部署时刻的环境决策（IMAGE_PROVIDER），用户看不到也不该看到。"""
     from schemas.capability import ImageGenerateInput
-    from services.capabilities.siliconflow_image import generate_image
 
     assert isinstance(inputs, ImageGenerateInput)
+    if config.IMAGE_PROVIDER == "kunbot":
+        from services.capabilities.kunbot_image import generate_image as gen_kunbot
+
+        return gen_kunbot(inputs)
+    from services.capabilities.siliconflow_image import generate_image
+
     return generate_image(inputs)
+
+
+def _image_billing_model() -> str:
+    """跟着 Provider 走的真实型号（usage/账本里的 model 字段绝不能指错方向）。"""
+    return config.IMAGE_MODEL_KUNBOT if config.IMAGE_PROVIDER == "kunbot" else config.IMAGE_MODEL
 
 
 def _video_executor(inputs: BaseModel) -> dict:
@@ -210,7 +222,7 @@ def _register() -> dict[str, CapabilityEntry]:
             display_name="图像",
             input_model=ImageGenerateInput,
             executor=_image_executor,
-            billing_model=lambda: config.IMAGE_MODEL,
+            billing_model=_image_billing_model,
             billing_estimate=lambda: Decimal(config.BILLING_IMAGE_RESERVE_CREDITS),
         ),
         "video.generate": CapabilityEntry(
