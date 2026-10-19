@@ -25,6 +25,8 @@ declare module 'vue' {
     ProjectSwitcher: typeof import('./../components/project/ProjectSwitcher.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    RunArchivePanel: typeof import('./../components/workflow/RunArchivePanel.vue')['default']
+    RunConfirmDialog: typeof import('./../components/workflow/RunConfirmDialog.vue')['default']
     SettingsPanel: typeof import('./../components/settings/SettingsPanel.vue')['default']
     TaskPanel: typeof import('./../components/task/TaskPanel.vue')['default']
     WorkflowCanvas: typeof import('./../components/workflow/WorkflowCanvas.vue')['default']

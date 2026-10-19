@@ -123,6 +123,13 @@
           <div class="workflow-node-head">
             <span class="workflow-node-icon">{{ nodeMark(node.type) }}</span>
             <div class="workflow-node-heading">
+              <!-- WF1-③ 报价角标：参数变了将来会重跑 / 取消财务费 / 配置缺口（⚠） -->
+              <span
+                v-if="runHintFor(node.id)"
+                class="workflow-node-hint"
+                :title="runHintTitleFor(node.id)"
+                >{{ runHintFor(node.id) }}</span
+              >
               <span class="workflow-node-badge">{{ node.badge }}</span>
               <h3>{{ node.name }}</h3>
             </div>
@@ -131,9 +138,11 @@
           <p>{{ node.description }}</p>
           <div class="workflow-node-footer">
             <template v-if="node.runStatus === 'running'">生成中…</template>
-            <template v-else-if="node.runStatus === 'succeeded'"
-              >已完成 · 结果已写入参数面板</template
-            >
+            <template v-else-if="node.runStatus === 'succeeded'">
+              {{
+                node.reused ? '已完成 · 命中缓存未重跑（0 积分）' : '已完成 · 结果已写入参数面板'
+              }}
+            </template>
             <template v-else-if="node.runStatus === 'failed'"
               >执行失败 · 请在参数面板查看原因</template
             >
@@ -580,6 +589,21 @@ const connectionPreviewPath = computed(() => {
     y: connectionState.value.currentY,
   })
 })
+
+/** WF1-③：预览数据驱动的节点角标（stale/将重跑/reused/被阻），数值源于费用预览。 */
+function runHintFor(nodeId: string): string | null {
+  const hint = workflowStore.nodeRunHints.get(nodeId)
+  if (!hint) return null
+  if (hint.state === 'blocked') return '⚠ 需先处理'
+  if (hint.state === 'stale') return '↻ 将重跑'
+  if (hint.state === 'reused') return '∞ 命中缓存'
+  return null
+}
+
+function runHintTitleFor(nodeId: string): string {
+  const hint = workflowStore.nodeRunHints.get(nodeId)
+  return hint?.reason ?? ''
+}
 
 function nodeMark(type: CreativeToolType | null) {
   return { lyrics: 'Aa', image: '✦', video: '▶', audio: '∿' }[type ?? 'lyrics']
@@ -1197,6 +1221,18 @@ onBeforeUnmount(() => {
 .workflow-node-heading {
   min-width: 0;
   flex: 1;
+}
+
+.workflow-node-hint {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  font-size: 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #d4d4d4;
+  background: rgba(255, 255, 255, 0.06);
+  white-space: nowrap;
 }
 
 .workflow-node-badge,

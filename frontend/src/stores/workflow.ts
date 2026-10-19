@@ -9,10 +9,12 @@ import {
   getWorkflowDraft,
   saveWorkflowDraft,
   runWorkflow,
+  getWorkflowRunPreview,
   type WorkflowCandidate,
   type WorkflowDraft,
   type WorkflowDraftNode,
   type WorkflowDraftResponse,
+  type WorkflowRunPreview,
 } from '@/serve/workflow'
 import { waitForAgentJob } from '@/serve/agent'
 import { useTaskStore } from './tasks'
@@ -44,6 +46,8 @@ export interface WorkflowNode {
   /** 每次成功/失败运行追加一条候选，下游需要多版本时必须手动选定 */
   candidates?: WorkflowCandidate[]
   selectedCandidateId?: string | null
+  /** 服务端运行时状态：本次运行复用了上次结果（零调用零计费）。仅展示，不回存。 */
+  reused?: boolean
 }
 
 export interface WorkflowEdge {
@@ -323,6 +327,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
           runStatus: node.runStatus,
           result: node.result ?? null,
           error: node.error ?? null,
+          reused: node.reused === true,
           candidates: Array.isArray(node.candidates)
             ? node.candidates.map((candidate): WorkflowCandidate => ({
                 id: String(candidate.id),
@@ -434,6 +439,35 @@ export const useWorkflowStore = defineStore('workflow', () => {
     }
   }
 
+  // ---------- WF1-③ 全局运行前报价 ----------
+  /** 最近一次从后端拿到的费用/缓存预览；弹窗打开与运行结束后都会刷新。 */
+  const runPreview = ref<WorkflowRunPreview | null>(null)
+  const runPreviewLoading = ref(false)
+
+  async function fetchRunPreview(): Promise<WorkflowRunPreview | null> {
+    runPreviewLoading.value = true
+    try {
+      runPreview.value = await getWorkflowRunPreview(currentProjectId.value)
+      return runPreview.value
+    } catch {
+      runPreview.value = null
+      return null
+    } finally {
+      runPreviewLoading.value = false
+    }
+  }
+
+  /** 画布节点角标依据：预览原始数据 → node_id → 状态/原因，供画布渲染「将重跑/命中缓存」。 */
+  const nodeRunHints = computed(() => {
+    const hints = new Map<string, { state: string; reason: string | null }>()
+    for (const chain of runPreview.value?.chains ?? []) {
+      for (const block of chain.blocks) {
+        hints.set(block.node_id, { state: block.state, reason: block.reason })
+      }
+    }
+    return hints
+  })
+
   async function runCurrentWorkflow(): Promise<ToolRunStatus> {
     if (isRunning.value) return 'running'
     await saveDraftToServer()
@@ -443,6 +477,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
       applyWorkflowSnapshot(submission.draft, submission.revision, submission.id)
     }
     if (!submission.job_id) {
+      void fetchRunPreview()
       return submission.status as ToolRunStatus
     }
     try {
@@ -452,11 +487,14 @@ export const useWorkflowStore = defineStore('workflow', () => {
       // 登记给 tasks 轮询，别再重复弹第二次通知。
       useTaskStore().markTerminalNotified(job.id)
       await refreshFromServer(currentProjectId.value)
+      // 运行结束后费用画像会变（命中/过期全重算），保留下次打开时的准确性
+      void fetchRunPreview()
       const jobStatus = (job.result?.status as ToolRunStatus | undefined) ?? job.status
       if (jobStatus === 'succeeded') return 'succeeded'
       if (jobStatus === 'model_unavailable') return 'model_unavailable'
       return 'failed'
     } catch (error) {
+      void fetchRunPreview()
       await refreshFromServer(currentProjectId.value)
       throw error
     }
@@ -830,6 +868,10 @@ export const useWorkflowStore = defineStore('workflow', () => {
     refreshFromServer,
     saveDraftToServer,
     runCurrentWorkflow,
+    runPreview,
+    runPreviewLoading,
+    fetchRunPreview,
+    nodeRunHints,
     cancelPendingSync,
   }
 })

@@ -19,6 +19,24 @@
 
           <div class="topbar-right">
             <div class="status-row">
+              <!-- WF1-③：一枚全局运行钮取代各 Block 的局部运行；先出报价弹窗（估资消耗 + 缓存命中）。 -->
+              <button
+                class="status-button"
+                type="button"
+                title="运行整个工作流（先出费用预览）"
+                @click="isRunConfirmOpen = true"
+              >
+                <span class="status-button-label">▶ 运行工作流</span>
+              </button>
+              <button
+                class="status-button"
+                :class="{ 'is-active': isArchiveOpen }"
+                type="button"
+                title="产物队列：每次运行的产物按链归档"
+                @click="isArchiveOpen = true"
+              >
+                <span class="status-button-label">产物队列</span>
+              </button>
               <div ref="saveModeWrapRef" class="status-button-wrap">
                 <button
                   class="status-button"
@@ -182,6 +200,14 @@
 
     <SettingsPanel :open="isSettingsOpen" @close="isSettingsOpen = false" />
 
+    <!-- WF1-③：全局运行费用预览弹窗 + 完成品档案馆抽屉 -->
+    <RunConfirmDialog
+      :open="isRunConfirmOpen"
+      @close="isRunConfirmOpen = false"
+      @started="handleRunStarted"
+    />
+    <RunArchivePanel :open="isArchiveOpen" @close="isArchiveOpen = false" />
+
     <!-- UI2 第二批④：⌘K/Ctrl+K 命令面板 -->
     <CommandPalette
       :open="isPaletteOpen"
@@ -275,6 +301,8 @@ import AssistantPanel from '@/components/assistant/AssistantPanel.vue'
 import CreativeToolPicker from '@/components/creative/CreativeToolPicker.vue'
 import CreativeToolPanel from '@/components/creative/CreativeToolPanel.vue'
 import WorkflowCanvas from '@/components/workflow/WorkflowCanvas.vue'
+import RunConfirmDialog from '@/components/workflow/RunConfirmDialog.vue'
+import RunArchivePanel from '@/components/workflow/RunArchivePanel.vue'
 import SettingsPanel from '@/components/settings/SettingsPanel.vue'
 import { JOB_TERMINAL_EVENT } from '@/utils/jobTransitions'
 import '@/views/workstation/styles/workstation-base.css'
@@ -302,6 +330,15 @@ const { id: projectId } = storeToRefs(projectStore)
 const isToolModalOpen = ref(false)
 const isSettingsOpen = ref(false)
 const isAssistantCollapsed = ref(false)
+
+// WF1-③：全局运行确认（费用预览）与产物队列抽屉
+const isRunConfirmOpen = ref(false)
+const isArchiveOpen = ref(false)
+
+function handleRunStarted() {
+  // 提交成功即打开档案馆：任务的排队/完成进度与产物都在这里归档
+  isArchiveOpen.value = true
+}
 
 // UI2 第二批④：命令面板（⌘K/Ctrl+K）。命令走注册表，新增功能 = 加一条命令项。
 const isPaletteOpen = ref(false)

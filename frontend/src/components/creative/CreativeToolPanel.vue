@@ -408,19 +408,11 @@
         </div>
 
         <footer class="panel-foot">
-          <span class="foot-hint">参数会自动保存</span>
+          <!-- WF1-③：块级运行按钮已下线——运行是画布级动作（顶部「运行工作流」带费用预览），
+               避免同一链被重复点火、也挡不住局部运行与全局缓存语义的冲突。 -->
+          <span class="foot-hint">参数会自动保存；点顶部「运行工作流」开始生成</span>
           <div class="foot-actions">
             <button type="button" class="btn-secondary" @click="saveAndClose">保存参数</button>
-            <button
-              v-if="runnableTool"
-              type="button"
-              class="btn-primary"
-              :disabled="isGenerating"
-              @click="generateBlock"
-            >
-              {{ isGenerating ? '生成中…' : generateButtonText }}
-            </button>
-            <button v-else type="button" class="btn-secondary" @click="saveAndClose">完成</button>
           </div>
         </footer>
       </section>
@@ -431,7 +423,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from '@/utils/toast'
-import { playTaskCompleteSound } from '@/utils/notifySound'
 import { useCreativeToolsStore } from '@/stores/creativeTools'
 import { useToolRunsStore } from '@/stores/toolRuns'
 import { useWorkflowStore, WORKFLOW_INPUT_ID } from '@/stores/workflow'
@@ -446,14 +437,6 @@ const toolRun = computed(() => (tool.value ? (toolRunsStore.records[tool.value.i
 const runnableTool = computed(
   () =>
     tool.value?.type === 'lyrics' || tool.value?.type === 'image' || tool.value?.type === 'video',
-)
-const isGenerating = computed(() => toolRun.value?.status === 'running')
-const generateButtonText = computed(() =>
-  tool.value?.type === 'image'
-    ? '生成图片'
-    : tool.value?.type === 'video'
-      ? '生成视频'
-      : '生成歌词',
 )
 const generationFailureText = computed(() =>
   tool.value?.type === 'image'
@@ -571,39 +554,6 @@ function addTextReference() {
 
 function removeReference(referenceId: string) {
   if (tool.value) creativeToolsStore.removeReference(tool.value.id, referenceId)
-}
-
-async function generateBlock() {
-  const currentTool = tool.value
-  if (!currentTool || !runnableTool.value || isGenerating.value) return
-
-  const requiredText =
-    currentTool.type === 'lyrics' ? currentTool.params.theme : currentTool.params.prompt
-  if (!requiredText?.trim()) {
-    ElMessage.warning(currentTool.type === 'image' ? '请先填写画面描述' : '请先填写创作主题')
-    return
-  }
-
-  toolRunsStore.setRecord(currentTool.id, { status: 'running', content: null, error: null })
-  creativeToolsStore.saveTool(currentTool.id)
-  try {
-    const status = await workflowStore.runCurrentWorkflow()
-    const record = toolRunsStore.records[currentTool.id]
-    if (status === 'succeeded') {
-      ElMessage.success(currentTool.type === 'image' ? '图像生成完成' : '歌词生成完成')
-      playTaskCompleteSound('success')
-    } else {
-      ElMessage.error(record?.error ?? generationFailureText.value)
-      playTaskCompleteSound('error')
-    }
-  } catch {
-    toolRunsStore.setRecord(currentTool.id, {
-      status: 'failed',
-      content: null,
-      error: '生成请求失败，请稍后重试',
-    })
-    ElMessage.error('生成请求失败，请稍后重试')
-  }
 }
 
 function saveAndClose() {
