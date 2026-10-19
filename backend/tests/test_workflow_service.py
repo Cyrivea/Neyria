@@ -896,7 +896,8 @@ def test_image_only_chain_creates_node(memory_repo):
 
 
 def test_image_run_reports_model_not_configured(memory_repo, monkeypatch):
-    # 不受开发机 .env 的真 SILICONFLOW_API_KEY 干扰：强制未配置全景
+    # 不受开发机 .env 的真 .env 设置干扰：钉死 siliconflow + 强制未配置
+    monkeypatch.setattr("core.config.IMAGE_PROVIDER", "siliconflow")
     monkeypatch.setattr("core.config.SILICONFLOW_API_KEY", "")
     _add_chain({"prompt": "雨夜小店"}, template_id="image_only")
     result = run(run_workflow(1, None))

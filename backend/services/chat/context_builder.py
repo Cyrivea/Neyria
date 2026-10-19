@@ -225,6 +225,10 @@ def assemble_messages(
         normalized_history_attachments = normalize_attachments(item.get("attachments"))
         if role not in {"user", "assistant"} or not content:
             continue
+        # 协议垃圾历史行（DSML/<tool_call> 残贴进库的坏轮）不要回喂模型——
+        # LLM 会照抄自己说过的野鸡格式，自我教学成坏偏好（真机实证 2026-10-19）
+        if "DSML" in content or "<tool_call>" in content:
+            continue
         messages.append(
             {
                 "role": role,

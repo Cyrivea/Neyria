@@ -18,8 +18,11 @@ def test_profile_placeholder_only_variable():
     assert "喜欢国风和 lo-fi" in prompt
     # 花括号模板语法绝不能残留在发往模型的文本里
     assert "{profile_section}" not in prompt
-    # 规则里的花括号字面量（旧式文本工具调用举例）必须原样保留，不被当模板变量炸掉
-    assert 'search_web {"query"' in prompt
+    # 花括号字面量不能被误当模板变量炸掉：用户侧可控输入里夹带花括号也要原样穿过。
+    # （这里的引出写与实际 prompt 内容脱耦：124 期被模仿"反例"翻车启始后，规则文件
+    # 里的花括号示例被清空，该险类只能推到「输入里带花括号」来守）
+    tricky = neyria.build_system_prompt("喜欢国风 {unknown_var} 与 lo-fi", "")
+    assert "{unknown_var}" in tricky
 
 
 def test_unknown_placeholders_passthrough():

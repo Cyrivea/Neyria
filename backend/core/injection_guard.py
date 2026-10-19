@@ -90,8 +90,10 @@ def _get_injection_embeddings() -> list[list[float]]:
         return []
 
 
-# 合法重启类措辞——这些在最通用语义空间到禁止注入语句会很近，必须打白名单跳过语义层
-_LEGIT_RESET = re.compile(r"(?:重来|不做|不要|丢到|重来|换个|这个不要|重做|重新来|清空后重来|重新|重新开始|从零开始)")
+# 合法重启类措辞——「清空画布」本身是平台原生动作（搭新链前的常规动作）
+_LEGIT_RESET = re.compile(
+    r"(?:重来|不做|不要|丢到|重来|换个|这个不要|重做|重新来|清空画布|清空后重来|重新|重新开始|从零开始)"
+)
 
 
 def scan_semantic_injection(message: str, threshold: float | None = None) -> dict[str, Any]:
@@ -140,8 +142,10 @@ def scan_semantic_injection(message: str, threshold: float | None = None) -> dic
 
 
 # 注入危险动作（非破坏操作）
+# 2026-10-19 修正：画布清空/重建是平台第一方功能（clear_workflow_draft 工具就是干这个的），
+# 「清空画布」单独出现不再算危险——危险的是「全量删除/破坏项目」这类对整个工作区的毁伤话术。
 _HARMFUL_ACTIONS = re.compile(
-    r"(?:清空画布|清空并|删库|删除所有|清空所有|重置所有|全部删除|全部删掉|全部清空|"
+    r"(?:删除所有|清空所有|重置所有|全部删除|全部删掉|全部清空|"
     r"把工作区全部删掉|把工作区清空|删光了?|清光|毁坏.*项目|删除.*工作站)"
 )
 

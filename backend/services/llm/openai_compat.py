@@ -40,9 +40,12 @@ class _OpenAISSEStream:
     close() 供“客户端断开时停掉上游连接”——不停 = 上游继续生成继续计费。
     """
 
-    def __init__(self, resp: httpx.Response, client: httpx.Client) -> None:
+    def __init__(self, resp: httpx.Response, client: httpx.Client, ctx: Any) -> None:
         self._resp = resp
         self._client = client  # 持有句柄，防止迭代期间被回收
+        # 关键坑（真机实证）：stream() 的上下文管理器对象必须跟流一起存活，否则
+        # __enter__ 返回后 ctx 被 GC，httpx 自动 close——迭代时报 StreamClosed。
+        self._ctx = ctx
 
     def __iter__(self) -> Iterator[StreamDelta]:
         try:
@@ -79,6 +82,7 @@ class _OpenAISSEStream:
     def close(self) -> None:
         try:
             self._resp.close()
+            self._ctx.__exit__(None, None, None)
         except Exception:  # 关不干净不影响主链，留个痕
             logger.debug("上游 SSE 连接关闭失败", exc_info=True)
 
@@ -140,25 +144,51 @@ class OpenAICompatChatClient:
             "messages": messages,
             "stream": True,
         }
-        if tools is not None:
+        # 空 tools 数组在部分网关（实测 kunbot/vLLM）上直接 400——只在真实有面可传时才带
+        if tools:
             payload["tools"] = tools
-        if tool_choice is not None:
-            payload["tool_choice"] = tool_choice
+            # tool_choice 脱离了 tools 是非法组合，多数网关同样拒
+            if tool_choice is not None:
+                payload["tool_choice"] = tool_choice
 
         def establish():
             timeout = min(self._apitimeout, float(config.LLM_STREAM_TIMEOUT_SECONDS))
-            resp = self._client.stream(
+            ctx = self._client.stream(
                 "POST", "/chat/completions", json=payload, timeout=timeout
-            ).__enter__()
+            )
+            try:
+                resp = ctx.__enter__()
+            except Exception:
+                logger.debug(
+                    "建流抛异常：%s %s hdrs=%s",
+                    type(ctx).__name__,
+                    payload.get("model"),
+                    dict(self._client.headers),
+                )
+                ctx.__exit__(None, None, None)  # 建流阶段即失败：记得把上下文还给连接池
+                raise
             if resp.status_code >= 400:
                 body = b"".join(resp.iter_bytes()).decode("utf-8", "replace")
                 status = resp.status_code
-                resp.close()
+                # 网关只会回「$ERROR」之类的空话，失败时把载荷解剖进诊断日志
+                #（只进日志不进用户面；request 附属品不保证存在，诊断信息有错就略）
+                req_obj = getattr(resp, "request", None)
+                req_headers = getattr(req_obj, "headers", None) or {}
+                logger.error(
+                    "网关拒绝 chat/completions：%s | model=%s tools=%d tool_choice=%s body=%s auth_has=%s",
+                    getattr(req_obj, "url", "?"),
+                    payload.get("model"),
+                    len(payload.get("tools") or []),
+                    payload.get("tool_choice"),
+                    body[:300],
+                    any(str(hk).lower() == "authorization" for hk in req_headers),
+                )
+                ctx.__exit__(None, None, None)
                 raise _retry.HttpStatusFailure(status, body)
-            return resp
+            return ctx, resp
 
-        resp = _retry.call_with_retry("stream", establish, sleep_fn=_sleep, log=logger)
-        return _OpenAISSEStream(resp, self._client)
+        ctx, resp = _retry.call_with_retry("stream", establish, sleep_fn=_sleep, log=logger)
+        return _OpenAISSEStream(resp, self._client, ctx)
 
     def complete(
         self,
@@ -172,7 +202,7 @@ class OpenAICompatChatClient:
             "model": self._resolve_model(model),
             "messages": messages,
         }
-        if tools is not None:
+        if tools:
             payload["tools"] = tools
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens

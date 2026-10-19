@@ -15,6 +15,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 import time
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -92,40 +93,108 @@ TEXT_TOOL_CALL_MAX_LENGTH = 1200
 logger = logging.getLogger("assistant")
 
 
-def parse_textual_tool_call(text: str) -> tuple[str, str] | None:
-    """识别模型偶尔输出的旧式文本工具调用，不把它直接展示给用户。
+# DSML（DeepSeek 原生工具标记）：全角/半角混写都收；参数从 parameter 标签逐键拆
+_DSML_INVOKE_RE = re.compile(
+    r"<[|｜]DSML[|｜]\s*invoke\s+name=[\"']([^\"']+)[\"'][^>]*>(.*)",
+    re.DOTALL | re.IGNORECASE,
+)
+_DSML_PARAM_RE = re.compile(
+    r"parameter\s+name=[\"']([^\"']+)[\"'][^>]*>(.*?)(?=</|$)",
+    re.DOTALL | re.IGNORECASE,
+)
 
-    智谱的标准响应是 ``delta.tool_calls``，但某些模型/兼容层会把调用写成
-    ``search_web {"query": "..."}``。这不是正常回答，必须转换回编排器的
-    结构化路径；解析失败时返回 None，普通文本仍按原样流出。
+
+def parse_textual_tool_call(text: str) -> tuple[str, str] | None:
+    """识别模型偶尔输出的野格式工具调用，统回收三种杂状花都：
+
+    ① 旧式 ``search_web {"query": "..."}``；
+    ② DeepSeek 原生 DSML ``<｜DSML｜invoke name=".."><｜DSML｜parameter name="..">值</..>``；
+    ③ GLM 杂交 ``<tool_call>search_web {...}``（外衣先剥，再做①）。
+    解析失败返回 None，普通文本仍按原样流出（ٹ时用户看到不是错误）。
     """
     candidate = text.strip()
     if not candidate or len(candidate) > TEXT_TOOL_CALL_MAX_LENGTH:
         return None
 
+    # ③外衣先剥：<tool_call> 包着的部分交给下方同一路径
+    low = candidate.lower()
+    if low.startswith("<tool_call>"):
+        candidate = candidate[len("<tool_call>") :].strip()
+        if candidate.lower().endswith("</tool_call>"):
+            candidate = candidate[: -len("</tool_call>")].strip()
+
+    # ② DSML
+    dsml = _DSML_INVOKE_RE.search(candidate)
+    if dsml:
+        name = dsml.group(1)
+        if name not in tools_map:
+            return None
+        region = dsml.group(2)
+        params: dict[str, str] = {}
+        for key, value in _DSML_PARAM_RE.findall(region):
+            params[key] = value.strip()
+        if not params:
+            body = region.strip()
+            if body.startswith("{"):
+                try:
+                    decoded = json.loads(body)
+                except json.JSONDecodeError:
+                    return None
+                if not isinstance(decoded, dict):
+                    return None
+                params = {str(k): v for k, v in decoded.items()}
+        if not params:
+            return None
+        return name, json.dumps(params, ensure_ascii=False)
+
+    # ① 旧式 name + JSON；也接受 {"name":..., "parameters":{...}} 書式
+    if candidate.startswith("{"):
+        try:
+            parsed0 = json.loads(candidate)
+        except json.JSONDecodeError:
+            parsed0 = None
+        if isinstance(parsed0, dict) and "name" in parsed0 and "parameters" in parsed0:
+            name = str(parsed0["name"])
+            if name in tools_map and isinstance(parsed0["parameters"], dict):
+                return name, json.dumps(parsed0["parameters"], ensure_ascii=False)
+
     for tool_name in sorted(tools_map, key=len, reverse=True):
         if not candidate.startswith(tool_name):
             continue
         rest = candidate[len(tool_name) :].lstrip()
+        # name 后面必须是 JSON 对象才按工具收编——“提到工具名”不是调用
         if not rest.startswith("{"):
             continue
         try:
             arguments, end = json.JSONDecoder().raw_decode(rest)
         except json.JSONDecodeError:
             continue
-        trailing = rest[end:].strip().removeprefix("```").strip()
-        if trailing or not isinstance(arguments, dict):
+        trailing = rest[end:].strip().removeprefix("```").removesuffix("```").strip()
+        # 允许尾随第二个空对象 / `<tool_call>` 复混合成的碎片（都不影响主参数）
+        for junk in ("{}",):
+            if trailing.endswith(junk):
+                trailing = trailing[: -len(junk)].strip()
+        if not isinstance(arguments, dict):
             continue
         return tool_name, json.dumps(arguments, ensure_ascii=False)
     return None
 
 
+# 流式「协议垃圾」开壳器：一旦出现，后续片段全部进 textual_tool_candidate 咬留，
+# 绝不上屏（真机实证：DeepSeek 的 DSML 与 GLM 的 </arg_value> 残片分片来袭）。
+_JUNK_OPENERS = ("<｜DSML｜", "<|DSML|", "<tool_call>", "</tool_call>", "<thinking>", "</thinking>")
+
+
 def _could_be_textual_tool_call_prefix(text: str) -> bool:
-    """判断尚未完整到达的文本是否仍可能是工具调用。"""
+    """判断尚未完整到达的文本是否仍可能是工具调用（或正在开启的普通垃圾段）。"""
     candidate = text.lstrip()
     if not candidate or len(candidate) > TEXT_TOOL_CALL_MAX_LENGTH:
         return False
-    return any(tool_name.startswith(candidate) or candidate.startswith(tool_name) for tool_name in tools_map)
+    # 原生工具名前缀
+    if any(tool_name.startswith(candidate) or candidate.startswith(tool_name) for tool_name in tools_map):
+        return True
+    # DSML / tool_call 标签前缀（流式可能一个字一个字到）
+    return any(opener.startswith(candidate) or candidate.startswith(opener) for opener in _JUNK_OPENERS)
 
 
 def _tools_for_context(has_knowledge_context: bool) -> list[dict]:
@@ -224,10 +293,20 @@ class _ToolNameScrubber:
     def flush(self) -> str:
         return self._drain(final=True)
 
+    # 协议垃圾残片：模型降级输出工具调用时吐出的标签残片，即使没造成工具调用
+    # 也绝不能原样上屏（真机现象：<tool_call>…</arg_value> 乱入正文）。
+    _JUNK_TAGS = (
+        "<｜DSML｜", "<|DSML|", "</｜DSML｜", "</|DSML|",
+        "<tool_call>", "</tool_call>", "</arg_value>", "<arg_value>",
+        "<arg_key>", "</arg_key>", "<thinking>", "</thinking>",
+    )
+
     def _drain(self, final: bool) -> str:
         scrubbed = self._buf
         for name in sorted(_TOOL_NAME_LABELS, key=len, reverse=True):
             scrubbed = scrubbed.replace(name, _TOOL_NAME_LABELS[name])
+        for tag in self._JUNK_TAGS:
+            scrubbed = scrubbed.replace(tag, "")
         if final:
             self._buf = ""
             return scrubbed
@@ -433,7 +512,7 @@ async def _orchestrate(
             # kwargs 里不放 None 值的键：收尾轮「不给工具」在请求记录里必须体现为
             # 无 tools 键——既与旧行为一致，也让 "tools" not in call 的测试断言保持真实。
             stream_kwargs: dict = {"model": CHAT_MODEL, "messages": messages}
-            if allow_tools:
+            if allow_tools and available_tools:
                 stream_kwargs["tools"] = available_tools
                 if force_tool_choice_once:
                     stream_kwargs["tool_choice"] = "required"

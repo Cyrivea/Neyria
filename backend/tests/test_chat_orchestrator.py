@@ -166,7 +166,8 @@ def test_private_context_disables_web_fallback(monkeypatch, persisted):
 
     monkeypatch.setattr(chat_orchestrator, "build_chat_context", private_context)
     fake, _events = run_chat(monkeypatch, [content_stream("根据文档回答")])
-    tool_names = {item["function"]["name"] for item in fake.calls[0]["tools"]}
+    # 设计语言变化：空工具面现在不会作为空数组发给上游（vLLM 面 400 实证）——断言「搜索不在面」而非「key 存在」
+    tool_names = {item["function"]["name"] for item in (fake.calls[0].get("tools") or [])}
 
     assert "search_web" not in tool_names
 
@@ -572,3 +573,39 @@ def test_followups_drop_suggestions_leaking_tool_names(monkeypatch, persisted):
     monkeypatch.setattr(orch, "client", _C())
     result = asyncio.run(orch._generate_followups("歌词→封面图", "已搭好，点运行即可"))
     assert result == ["封面要不要换个比例？"]
+
+
+# ---------- 模型野格式工具调用回收（Kunbot 网关切槽实证：DSML / <tool_call> 杂行） ----------
+
+
+def test_dsml_invoke_is_converted_to_tool_call():
+    dsml = '<｜DSML｜invoke name="search_web"><｜DSML｜parameter name="query" string="true">智能体含义</｜DSML｜parameter></｜DSML｜invoke>'
+    assert chat_orchestrator.parse_textual_tool_call(dsml) == ("search_web", '{"query": "智能体含义"}')
+
+
+def test_tool_call_wrapper_bare_name_json():
+    out = chat_orchestrator.parse_textual_tool_call('<tool_call>search_web {"a": 1}</tool_call>')
+    assert out == ("search_web", '{"a": 1}')
+
+
+def test_hybrid_trailing_empty_object_is_tolerated():
+    out = chat_orchestrator.parse_textual_tool_call('search_web {"query": "京剧"}{}')
+    assert out == ("search_web", '{"query": "京剧"}')
+
+
+def test_plain_text_with_tool_mention_not_swallowed():
+    assert chat_orchestrator.parse_textual_tool_call("你可以用 search_web 查") is None
+
+
+def test_dsml_prefix_marker_captured_as_candidate_prefix():
+    assert chat_orchestrator._could_be_textual_tool_call_prefix("<｜DSML")
+    assert chat_orchestrator._could_be_textual_tool_call_prefix("<too")
+    assert not chat_orchestrator._could_be_textual_tool_call_prefix("普通中文一句")
+
+
+def test_scrubber_strips_protocol_junk_fragments():
+    scr = chat_orchestrator._ToolNameScrubber()
+    out = scr.feed("答案</tool_call>来了") + scr.feed("，还有</arg_value>尾巴")
+    out += scr.flush()
+    assert "</tool_call>" not in out and "</arg_value>" not in out
+    assert "答案" in out and "尾巴" in out
