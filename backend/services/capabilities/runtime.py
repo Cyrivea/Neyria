@@ -38,6 +38,9 @@ class CapabilityContext:
     source: str
     # 本轮用户原话：供工具做上下文敏感的安全检查（如注入式清空）
     user_message: str = ""
+    # WF1-③：workflow 运行时传入 run_id，产物资产才能对账到【哪次运行出的】；
+    # assistant/standalone 路径无归属保持 None（删除档案馆运行时才不影响别的产物）
+    run_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -239,7 +242,7 @@ async def _write_asset(asset: dict, context: CapabilityContext) -> None:
             asset_repo.insert,
             user_id=context.user_id,
             project_id=context.project_id,
-            run_id=None,
+            run_id=context.run_id,
             capability_id=asset["capability_id"],
             kind=kind,
             filename=asset["filename"],

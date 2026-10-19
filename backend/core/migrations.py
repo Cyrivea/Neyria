@@ -519,6 +519,16 @@ def _m015_add_message_feedback(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE messages ADD COLUMN feedback INTEGER")
 
 
+def _m016_workflow_run_keep_flag(conn: sqlite3.Connection) -> None:
+    """WF1-③ 队列档案馆：「满意才保留」旗标。
+
+    运行即成账不退款，删除=清记录+产物文件；keep=1 的运行是未来自动清理策略的
+    豁免名单，也是用户在档案馆里标记「这版要留」的入口。"""
+    cols = [row[1] for row in conn.execute("PRAGMA table_info(workflow_runs)")]
+    if "kept" not in cols:
+        conn.execute("ALTER TABLE workflow_runs ADD COLUMN kept INTEGER NOT NULL DEFAULT 0")
+
+
 MIGRATIONS: list[Migration] = [
     ("baseline: users/messages/projects + indexes", _m001_baseline),
     ("add foreign keys via table rebuild", _m002_add_foreign_keys),
@@ -535,6 +545,7 @@ MIGRATIONS: list[Migration] = [
     ("create billing core (prices/subscriptions/credits)", _m013_create_billing),
     ("project panel semantics: saved_at + discarded_at", _m014_project_panel_semantics),
     ("add message user feedback", _m015_add_message_feedback),
+    ("workflow run keep flag (queue archive)", _m016_workflow_run_keep_flag),
 ]
 
 

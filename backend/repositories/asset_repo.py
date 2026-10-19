@@ -89,3 +89,44 @@ def list_for_user(
                 (user_id, project_id, min(limit, 500)),
             ).fetchall()
     return [_row(r) for r in rows]
+
+
+def list_for_run(user_id: int, run_id: str) -> list[dict[str, Any]]:
+    """WF1-③ 档案馆删除路径：按 run_id 对账列捞某次运行产出的全部资产行。"""
+    with db_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            f"SELECT {_COLUMNS} FROM assets WHERE user_id=? AND run_id=?",
+            (user_id, run_id),
+        ).fetchall()
+    return [_row(r) for r in rows]
+
+
+def delete_by_filename(user_id: int, filename: str) -> list[dict[str, Any]]:
+    """删除某用户名下指定文件名的资产行，返回被删的行（供调用方连磁盘文件一起清）。
+
+    只按 user 隔离删除（不带 project 条件）：同一文件在两库行里共存时一并清账，
+    磁盘文件随后只 unlink 一次。
+    """
+    with db_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            f"SELECT {_COLUMNS} FROM assets WHERE user_id=? AND filename=?",
+            (user_id, filename),
+        ).fetchall()
+        conn.execute(
+            "DELETE FROM assets WHERE user_id=? AND filename=?", (user_id, filename)
+        )
+    return [_row(r) for r in rows]
+
+
+def delete_by_run(user_id: int, run_id: str) -> list[dict[str, Any]]:
+    """删除对账到某次运行的全部资产行，返回被删的行。"""
+    with db_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            f"SELECT {_COLUMNS} FROM assets WHERE user_id=? AND run_id=?",
+            (user_id, run_id),
+        ).fetchall()
+        conn.execute("DELETE FROM assets WHERE user_id=? AND run_id=?", (user_id, run_id))
+    return [_row(r) for r in rows]

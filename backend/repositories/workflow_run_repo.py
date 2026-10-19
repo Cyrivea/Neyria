@@ -10,7 +10,7 @@ from core.database import db_connection
 
 _RUN_COLUMNS = (
     "id, user_id, project_id, workflow_id, draft_revision, draft_snapshot_json, "
-    "status, error, job_id, created_at, started_at, finished_at, env_snapshot_json"
+    "status, error, job_id, created_at, started_at, finished_at, env_snapshot_json, kept"
 )
 _STEP_COLUMNS = (
     "id, run_id, node_id, capability_id, status, input_json, output_json, error, created_at"
@@ -51,7 +51,8 @@ def create(
     with db_connection() as conn:
         conn.row_factory = sqlite3.Row
         conn.execute(
-            f"INSERT INTO workflow_runs ({_RUN_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, 'queued', NULL, ?, ?, NULL, NULL, ?)",
+            f"INSERT INTO workflow_runs ({_RUN_COLUMNS}) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'queued', NULL, ?, ?, NULL, NULL, ?, 0)",
             (
                 run_id,
                 user_id,
@@ -107,6 +108,38 @@ def list_recent(user_id: int, project_id: int | None, limit: int = 5) -> list[di
             (user_id, project_id, max(1, min(limit, 20))),
         ).fetchall()
     return [_run(row) for row in rows]
+
+
+def set_kept(user_id: int, run_id: str, kept: bool) -> bool:
+    """WF1-③「满意才保留」旗标。返回是否有行被改动（供路由判 404）。"""
+    with db_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE workflow_runs SET kept=? WHERE id=? AND user_id=?",
+            (1 if kept else 0, run_id, user_id),
+        )
+    return cursor.rowcount > 0
+
+
+def delete_run(user_id: int, run_id: str) -> str | None:
+    """删除一条运行记录；workflow_steps 靠外键 ON DELETE CASCADE 级联清掉。
+
+    活跃运行（queued/running）拒绝删除，返回其状态；未能删除/不存在返回 None 的语义
+    交由服务层决定（不存在→404、进行中→409）。返回终态字符串表示删成了。
+    """
+    with db_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT status FROM workflow_runs WHERE id=? AND user_id=?", (run_id, user_id)
+        ).fetchone()
+        if row is None:
+            return None
+        status = str(row["status"])
+        if status in ("queued", "running"):
+            return f"active:{status}"
+        conn.execute(
+            "DELETE FROM workflow_runs WHERE id=? AND user_id=?", (run_id, user_id)
+        )
+    return status
 
 
 def update_status(

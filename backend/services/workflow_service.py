@@ -20,13 +20,15 @@ import time
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
 
+from core import config
 from core.exceptions import AppError
-from repositories import workflow_repo, workflow_run_repo
+from repositories import asset_repo, workflow_repo, workflow_run_repo
 from schemas.capability import CapabilityResult
 from services import job_service
 from services.capabilities import CAPABILITY_REGISTRY, CapabilityContext, run_capability
@@ -1000,6 +1002,232 @@ def get_run_status_detail(
     }
 
 
+# ---------- WF1-③ 队列档案馆：费用预览 / 运行列表 / 删除与保留 ----------
+
+
+def get_run_preview(user_id: int, project_id: int | None) -> dict[str, Any]:
+    """全局运行按钮的「跑前先报价」：与 _execute_snapshot_run 完全同一套缓存判定。
+
+    - reused：resolved 参数指纹 ≡ checkpoint 且结果还在——零调用零计费；
+    - stale：跑过但参数/上游有变——本次将重跑并计费；
+    - cold：首次运行——计费；
+    - blocked：上游多版本未选定等配置缺口——运行会失败，预览期就说破。
+    上层入参的引用内容取当前 draft 候选区（与运行时「上游命中缓存」的路径一致）；
+    若上游将重跑且产出变了，下游的 reused 业力会失效——前端提示语如实稩明。
+    """
+    current = get_draft(user_id, project_id)
+    draft = current["draft"]
+    try:
+        ordered = _execution_order(draft)
+    except AppError as exc:
+        return {
+            "ready": False,
+            "reason": getattr(exc, "detail", str(exc)),
+            "total_cost_credits": 0.0,
+            "reused_count": 0,
+            "billable_count": 0,
+            "chains": [],
+        }
+
+    chain_meta = {
+        entry.get("chain_no"): entry
+        for entry in _chain_registry(draft)
+        if entry.get("chain_no") is not None
+    }
+    per_node: list[dict[str, Any]] = []
+    total = Decimal("0")
+    for node in ordered:
+        capability_id = str(node.get("capability_id"))
+        resolved, params_error = _resolve_params(node, draft, {})
+        checkpoint = node.get("checkpoint") or {}
+        reusable = _reusable_content(node)
+        entry = CAPABILITY_REGISTRY.get(capability_id)
+        will_reuse = False
+        if not params_error and reusable is not None:
+            fingerprint = _params_fingerprint(capability_id, resolved)
+            will_reuse = checkpoint.get("params_hash") == fingerprint
+        estimate = Decimal("0") if will_reuse or entry is None else entry.billing_estimate()
+        if params_error:
+            state, reason = "blocked", params_error
+        elif entry is None:
+            state, reason = "blocked", f"未注册的能力: {capability_id}"
+        elif will_reuse:
+            state, reason = "reused", None
+        elif checkpoint:
+            state, reason = "stale", "参数或上游内容有变，本次将重跑"
+        else:
+            state, reason = "cold", None
+        total += estimate
+        per_node.append(
+            {
+                "node_id": str(node.get("id")),
+                "name": node.get("name"),
+                "capability_id": capability_id,
+                "chain_no": node.get("chain_no"),
+                "state": state,
+                "reason": reason,
+                "cost_credits": float(estimate),
+            }
+        )
+
+    groups: dict[Any, dict[str, Any]] = {}
+    for info in per_node:
+        no = info["chain_no"]
+        chain_entry = chain_meta.get(no)
+        group = groups.setdefault(
+            no,
+            {
+                "chain_no": no,
+                "chain_id": (chain_entry or {}).get("chain_id"),
+                "label": (chain_entry or {}).get("label") or "未登记链",
+                "cost_credits": 0.0,
+                "blocks": [],
+            },
+        )
+        group["cost_credits"] += info["cost_credits"]
+        group["blocks"].append(info)
+    first_blocked = next((i["reason"] for i in per_node if i["state"] == "blocked"), None)
+    return {
+        "ready": first_blocked is None,
+        "reason": first_blocked,
+        "total_cost_credits": float(total),
+        "reused_count": sum(1 for i in per_node if i["state"] == "reused"),
+        "billable_count": sum(1 for i in per_node if i["cost_credits"] > 0),
+        # 未登记链（未连成完整直线的手搭块）沉底，链号小的在前
+        "chains": sorted(
+            groups.values(), key=lambda g: (g["chain_no"] is None, g["chain_no"] or 0)
+        ),
+    }
+
+
+def list_runs(user_id: int, project_id: int | None, limit: int = 20) -> dict[str, Any]:
+    """队列档案馆列表：每次运行帶步骤与按链分组的产物摘要（新→旧）。
+
+    产物内容全量返回（歌词文本 + 图像/视频 asset URL）；上限 20 条运行，
+    靠面板「删除不成功版本」保持清单可管理。
+    """
+    _check_project_owner(user_id, project_id)
+    items: list[dict[str, Any]] = []
+    for run in workflow_run_repo.list_recent(user_id, project_id, limit=limit):
+        steps = workflow_run_repo.list_steps(user_id, run["id"])
+        snapshot = run.get("draft_snapshot") or {}
+        chain_label = {
+            entry.get("chain_no"): entry.get("label")
+            for entry in snapshot.get("chains", [])
+            if isinstance(entry, dict)
+        }
+        node_by_id = {
+            str(n.get("id")): n
+            for n in snapshot.get("nodes", [])
+            if isinstance(n, dict)
+        }
+        chain_groups: dict[Any, dict[str, Any]] = {}
+        for step in steps:
+            node = node_by_id.get(str(step.get("node_id")), {})
+            chain_no = node.get("chain_no")
+            group = chain_groups.setdefault(
+                chain_no,
+                {
+                    "chain_no": chain_no,
+                    "label": chain_label.get(chain_no) or "未登记链",
+                    "blocks": [],
+                },
+            )
+            raw_output = step.get("output")
+            output: dict[str, Any] = raw_output if isinstance(raw_output, dict) else {}
+            group["blocks"].append(
+                {
+                    "node_id": step.get("node_id"),
+                    "node_name": node.get("name") or step.get("node_id"),
+                    "capability_id": step.get("capability_id"),
+                    "status": step.get("status"),
+                    "reused": bool(output.get("reused")),
+                    "content": output.get("content"),
+                    "error": step.get("error"),
+                }
+            )
+        done = sum(1 for s in steps if s.get("status") in {"succeeded", "failed", "reused"})
+        items.append(
+            {
+                "run_id": run["id"],
+                "status": run["status"],
+                "kept": bool(run.get("kept")),
+                "created_at": run.get("created_at"),
+                "finished_at": run.get("finished_at"),
+                "error": run.get("error"),
+                "progress": {"done": done, "total": len(steps)},
+                "chains": sorted(
+                    chain_groups.values(), key=lambda g: (g["chain_no"] is None, g["chain_no"] or 0)
+                ),
+            }
+        )
+    return {"runs": items, "limit": limit}
+
+
+_ASSET_URL_RE = re.compile(r"/api/assets/([A-Za-z0-9_.-]+)")
+
+
+def delete_run(user_id: int, run_id: str) -> dict[str, Any]:
+    """「不满意删除」：删除运行记录 + 该次运行产出的资产行与磁盘文件。
+
+    诚实话术硬约束：运行即成账，积分不退还（settle-at-完成是 I5 的计价语义）。
+    进行中的 run 不删（409）；资产级联只跟进对账得到的文件，不碰别的产物。
+    """
+    run = workflow_run_repo.get(user_id, run_id)
+    if run is None:
+        raise AppError("运行记录不存在", status_code=404)
+    if run["status"] in ("queued", "running"):
+        raise AppError("运行进行中，结束后才能删除", status_code=409)
+
+    # 先在删行前采样此次运行引用的产物文件名（步骤删除后行就没了）
+    filenames: set[str] = set()
+    for step in workflow_run_repo.list_steps(user_id, run_id):
+        output = step.get("output")
+        content = output.get("content") if isinstance(output, dict) else None
+        if isinstance(content, str):
+            filenames.update(_ASSET_URL_RE.findall(content))
+
+    outcome = workflow_run_repo.delete_run(user_id, run_id)
+    if outcome is None:
+        raise AppError("运行记录不存在", status_code=404)
+    if str(outcome).startswith("active:"):
+        raise AppError("运行进行中，结束后才能删除", status_code=409)
+
+    # 资产双路对账：新路（v16 后）run_id 对账列；老路从 step 内容里解析文件名
+    deleted_rows = asset_repo.delete_by_run(user_id, run_id)
+    for row in deleted_rows:
+        filenames.add(str(row.get("filename") or ""))
+    files_removed = 0
+    for filename in sorted(filenames):
+        if not filename:
+            continue
+        removed = asset_repo.delete_by_filename(user_id, filename)
+        if not removed and filename not in {r["filename"] for r in deleted_rows}:
+            continue
+        path = Path(config.DOCUMENT_STORAGE_DIR).parent / "assets" / Path(filename).name
+        with contextlib.suppress(OSError):
+            path.unlink(missing_ok=True)
+            files_removed += 1
+    logger.info(
+        "队列删除完成（积分不退还）",
+        extra={
+            "evt": "workflow_run_deleted",
+            "run_id": run_id,
+            "files_removed": files_removed,
+            "kept": bool(run.get("kept")),
+        },
+    )
+    return {"deleted": True, "run_id": run_id, "files_removed": files_removed, "refund": False}
+
+
+def set_run_kept(user_id: int, run_id: str, kept: bool) -> dict[str, Any]:
+    """「满意才保留」旗标：未来自动清理策略的豁免名单。"""
+    if workflow_run_repo.get(user_id, run_id) is None:
+        raise AppError("运行记录不存在", status_code=404)
+    workflow_run_repo.set_kept(user_id, run_id, kept)
+    return {"run_id": run_id, "kept": kept}
+
+
 async def await_workflow_idle(
     user_id: int,
     project_id: int | None,
@@ -1229,7 +1457,13 @@ async def _execute_snapshot_run(
         result = await run_capability(
             node["capability_id"],
             resolved_params,
-            context=CapabilityContext(user_id=user_id, project_id=project_id, source="workflow"),
+            context=CapabilityContext(
+                user_id=user_id,
+                project_id=project_id,
+                source="workflow",
+                # WF1-③：产物资产对账到 run——档案馆删除运行时能连文件一起收原路退回
+                run_id=run_id,
+            ),
         )
         workflow_run_repo.finish_step(
             step["id"],
