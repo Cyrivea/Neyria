@@ -832,7 +832,15 @@ def _resolve_params(
         UPSTREAM_REF_RE.search(str(value)) for value in params.values()
     )
     if needs_reference and not upstream_content:
-        return params, "上游已产出多个版本，请先在其中选一个，再运行当前节点"
+        has_any_succeeded = any(
+            isinstance(cand, dict) and cand.get("status") == "succeeded" and cand.get("content")
+            for cand in (upstream_node.get("candidates") if upstream_node else []) or []
+        )
+        if has_any_succeeded:
+            # 注：这句文案有单测锁定（多版本必须手选的生产铁律），改动要同步看测试
+            return params, "上游已产出多个版本，请先在其中选一个，再运行当前节点"
+        # 另一种真实原因：上游没产出过（从未跑过 / 上一次失败 / 候选区被清了）
+        return params, "上游节点还没有可用产出，请先确保上游节点运行成功后再运行本节点"
     resolved: dict[str, Any] = {}
     for key, value in params.items():
         if isinstance(value, str) and upstream_content:
@@ -988,7 +996,7 @@ def get_run_status_detail(
         }
         for step in steps
     ]
-    done_count = sum(1 for s in step_items if s["status"] in {"succeeded", "failed"})
+    done_count = sum(1 for s in step_items if s["status"] in {"succeeded", "reused", "failed"})
     return {
         "run_id": run["id"],
         "status": run["status"],
@@ -1011,9 +1019,11 @@ def get_run_preview(user_id: int, project_id: int | None) -> dict[str, Any]:
     - reused：resolved 参数指纹 ≡ checkpoint 且结果还在——零调用零计费；
     - stale：跑过但参数/上游有变——本次将重跑并计费；
     - cold：首次运行——计费；
-    - blocked：上游多版本未选定等配置缺口——运行会失败，预览期就说破。
+    - blocked：上游多版本未选定、上游被卡、能力未注册等缺口——运行会失败，预览期就说破；
+    - 冷链路特例：参数引用了「还在排队要跑」的上游（预览时没有候选内容），不计为
+      blocked——上游届时会真跑并产出；费用口径保守计入下游费用。
     上层入参的引用内容取当前 draft 候选区（与运行时「上游命中缓存」的路径一致）；
-    若上游将重跑且产出变了，下游的 reused 业力会失效——前端提示语如实稩明。
+    若上游将重跑且产出变了，下游的 reused 预估会失效——前端提示语如实说明。
     """
     current = get_draft(user_id, project_id)
     draft = current["draft"]
@@ -1029,28 +1039,57 @@ def get_run_preview(user_id: int, project_id: int | None) -> dict[str, Any]:
             "chains": [],
         }
 
-    chain_meta = {
-        entry.get("chain_no"): entry
-        for entry in _chain_registry(draft)
-        if entry.get("chain_no") is not None
-    }
+    # 链分组以链注册表为唯一权威：用户手搭链只登记 node_ids，不回写节点
+    # （1106 之前读 node.chain_no 的写法让用户搭的链全掉进「未登记链」）。
+    node_chain: dict[str, dict[str, Any]] = {}
+    for entry in _chain_registry(draft):
+        for nid in entry.get("node_ids", []):
+            node_chain[str(nid)] = entry
+    node_by_id = {str(n.get("id")): n for n in draft.get("nodes", []) if isinstance(n, dict)}
+
     per_node: list[dict[str, Any]] = []
+    blocked_ids: set[str] = set()
+    processed_ids: set[str] = set()
     total = Decimal("0")
     for node in ordered:
+        node_id = str(node.get("id"))
         capability_id = str(node.get("capability_id"))
+        upstream_id = next(
+            (
+                str(e.get("source"))
+                for e in draft.get("edges", [])
+                if str(e.get("target")) == node_id
+                and str(e.get("source")) not in (INPUT_ID, OUTPUT_ID)
+            ),
+            None,
+        )
+        upstream_node = node_by_id.get(upstream_id) if upstream_id else None
         resolved, params_error = _resolve_params(node, draft, {})
+        if params_error and upstream_id is not None and upstream_node is not None:
+            no_output_case = not any(
+                isinstance(c, dict) and c.get("status") == "succeeded" and c.get("content")
+                for c in upstream_node.get("candidates") or []
+            )
+            if upstream_id in blocked_ids:
+                params_error = f"上游节点（{upstream_node.get('name') or upstream_id}）不能产出（请先处理上游）"
+            elif no_output_case and upstream_id in processed_ids:
+                # 冷链路上游会真跑并产出：预览不拦截，下游届时获得内容。
+                # 费用口径保守处理——届时内容若与现状一致，下游仍可能转缓存复用。
+                params_error = None
         checkpoint = node.get("checkpoint") or {}
         reusable = _reusable_content(node)
-        entry = CAPABILITY_REGISTRY.get(capability_id)
+        cap_entry = CAPABILITY_REGISTRY.get(capability_id)
         will_reuse = False
         if not params_error and reusable is not None:
             fingerprint = _params_fingerprint(capability_id, resolved)
             will_reuse = checkpoint.get("params_hash") == fingerprint
-        estimate = Decimal("0") if will_reuse or entry is None else entry.billing_estimate()
+        estimate = Decimal("0") if will_reuse or cap_entry is None else cap_entry.billing_estimate()
         if params_error:
             state, reason = "blocked", params_error
-        elif entry is None:
+            blocked_ids.add(node_id)
+        elif cap_entry is None:
             state, reason = "blocked", f"未注册的能力: {capability_id}"
+            blocked_ids.add(node_id)
         elif will_reuse:
             state, reason = "reused", None
         elif checkpoint:
@@ -1058,12 +1097,14 @@ def get_run_preview(user_id: int, project_id: int | None) -> dict[str, Any]:
         else:
             state, reason = "cold", None
         total += estimate
+        processed_ids.add(node_id)
+        chain_entry_of_node = node_chain.get(node_id)
         per_node.append(
             {
-                "node_id": str(node.get("id")),
+                "node_id": node_id,
                 "name": node.get("name"),
                 "capability_id": capability_id,
-                "chain_no": node.get("chain_no"),
+                "chain_no": (chain_entry_of_node or {}).get("chain_no"),
                 "state": state,
                 "reason": reason,
                 "cost_credits": float(estimate),
@@ -1073,13 +1114,13 @@ def get_run_preview(user_id: int, project_id: int | None) -> dict[str, Any]:
     groups: dict[Any, dict[str, Any]] = {}
     for info in per_node:
         no = info["chain_no"]
-        chain_entry = chain_meta.get(no)
+        registry_entry = node_chain.get(info["node_id"])
         group = groups.setdefault(
             no,
             {
                 "chain_no": no,
-                "chain_id": (chain_entry or {}).get("chain_id"),
-                "label": (chain_entry or {}).get("label") or "未登记链",
+                "chain_id": (registry_entry or {}).get("chain_id"),
+                "label": (registry_entry or {}).get("label") or "未登记链",
                 "cost_credits": 0.0,
                 "blocks": [],
             },
@@ -1111,11 +1152,15 @@ def list_runs(user_id: int, project_id: int | None, limit: int = 20) -> dict[str
     for run in workflow_run_repo.list_recent(user_id, project_id, limit=limit):
         steps = workflow_run_repo.list_steps(user_id, run["id"])
         snapshot = run.get("draft_snapshot") or {}
-        chain_label = {
-            entry.get("chain_no"): entry.get("label")
-            for entry in snapshot.get("chains", [])
-            if isinstance(entry, dict)
-        }
+        # 与预览同口径：链归属以注册表 node_ids 为权威，节点上的 chain_no 字段仅供参考
+        chain_label: dict[Any, Any] = {}
+        node_chain_of: dict[str, Any] = {}
+        for entry in snapshot.get("chains", []):
+            if not isinstance(entry, dict):
+                continue
+            chain_label[entry.get("chain_no")] = entry.get("label")
+            for nid in entry.get("node_ids", []):
+                node_chain_of[str(nid)] = entry.get("chain_no")
         node_by_id = {
             str(n.get("id")): n
             for n in snapshot.get("nodes", [])
@@ -1124,7 +1169,7 @@ def list_runs(user_id: int, project_id: int | None, limit: int = 20) -> dict[str
         chain_groups: dict[Any, dict[str, Any]] = {}
         for step in steps:
             node = node_by_id.get(str(step.get("node_id")), {})
-            chain_no = node.get("chain_no")
+            chain_no = node_chain_of.get(str(step.get("node_id")))
             group = chain_groups.setdefault(
                 chain_no,
                 {

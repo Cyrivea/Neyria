@@ -259,6 +259,39 @@ async def _write_asset(asset: dict, context: CapabilityContext) -> None:
         )
 
 
+def _truncate_overlong_strings(
+    model_cls: type[BaseModel], inputs: dict[str, Any]
+) -> BaseModel | None:
+    """超长字符串入参按 Field(max_length) 截断后重校验。
+
+    背景（D 类真机实证）：下游模型的字符上限（如 Kolors prompt 300 字）碰撞
+    上游长产物（整段歌词）；撞上限不该让整链失败——截断 = 允许任性生成但保留
+    边界物理约束，截断事实记 WARNING 日志供调优回溯。截完仍不过（空串/其它
+    字段错）返回 None，由调用方按原口径报「参数不符合平台要求」。
+    """
+    from annotated_types import MaxLen
+
+    patched = dict(inputs)
+    any_change = False
+    for name, field_info in model_cls.model_fields.items():
+        value = patched.get(name)
+        if not isinstance(value, str):
+            continue
+        max_len = next(
+            (meta.max_length for meta in field_info.metadata if isinstance(meta, MaxLen)),
+            None,
+        )
+        if max_len is not None and len(value) > max_len:
+            patched[name] = value[:max_len]
+            any_change = True
+    if not any_change:
+        return None
+    try:
+        return model_cls.model_validate(patched)
+    except ValidationError:
+        return None
+
+
 async def run_capability(
     capability_id: str,
     inputs: dict[str, Any],
@@ -279,11 +312,26 @@ async def run_capability(
 
     try:
         validated = entry.input_model.model_validate(inputs)
-    except ValidationError:
-        return CapabilityResult(
-            capability_id=capability_id,
-            status="failed",
-            error=f"{entry.display_name}参数不符合平台要求",
+    except ValidationError as first_error:
+        # 超长 prompt 宽容截断：上游引用长文本（如整段歌词）会越过下游模型的
+        # 字符上限——这不该是让用户错底的坑，截到 max_length 并记日志后继续；
+        # 截完还不过（空串/其它字段错）才如实返回「参数不符合平台要求」。
+        salvaged = _truncate_overlong_strings(entry.input_model, inputs)
+        if salvaged is None:
+            return CapabilityResult(
+                capability_id=capability_id,
+                status="failed",
+                error=f"{entry.display_name} 参数不符合平台要求",
+            )
+        validated = salvaged
+        logger.warning(
+            "能力入参超长已被截断",
+            extra={
+                "evt": "capability_input_truncated",
+                "capability": capability_id,
+                "source": context.source,
+                "first_error": str(first_error)[:200],
+            },
         )
 
     logger.info(

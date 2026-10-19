@@ -529,6 +529,40 @@ def _m016_workflow_run_keep_flag(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE workflow_runs ADD COLUMN kept INTEGER NOT NULL DEFAULT 0")
 
 
+def _m017_steps_allow_reused_status(conn: sqlite3.Connection) -> None:
+    """快照缓存复用状态的落库缺口：workflow_steps.status 的 CHECK 没有 'reused'。
+
+    真机跑缓存命中路径即 IntegrityError（run-0d88a0ede71d 实证）；stub 测试不踩真
+    SQLite 所以护不住。SQLite 无改 CHECK 语法，只能重建表搬数据。"""
+    cols = [row[1] for row in conn.execute("PRAGMA table_info(workflow_steps)")]
+    if not cols:
+        return
+    # 重跑安全：与 _m002 同手法，先清干净可能残留的中间表
+    conn.execute("DROP TABLE IF EXISTS workflow_steps_new")
+    conn.execute(
+        """
+        CREATE TABLE workflow_steps_new (
+            id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
+            node_id TEXT NOT NULL,
+            capability_id TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'reused', 'failed', 'cancelled')),
+            input_json TEXT,
+            output_json TEXT,
+            error TEXT,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO workflow_steps_new SELECT id, run_id, node_id, capability_id, "
+        "status, input_json, output_json, error, created_at FROM workflow_steps"
+    )
+    conn.execute("DROP TABLE workflow_steps")
+    conn.execute("ALTER TABLE workflow_steps_new RENAME TO workflow_steps")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_workflow_steps_run ON workflow_steps(run_id)")
+
+
 MIGRATIONS: list[Migration] = [
     ("baseline: users/messages/projects + indexes", _m001_baseline),
     ("add foreign keys via table rebuild", _m002_add_foreign_keys),
@@ -546,6 +580,7 @@ MIGRATIONS: list[Migration] = [
     ("project panel semantics: saved_at + discarded_at", _m014_project_panel_semantics),
     ("add message user feedback", _m015_add_message_feedback),
     ("workflow run keep flag (queue archive)", _m016_workflow_run_keep_flag),
+    ("workflow steps allow reused status", _m017_steps_allow_reused_status),
 ]
 
 

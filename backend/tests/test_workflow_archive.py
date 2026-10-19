@@ -171,6 +171,90 @@ class TestRunPreview:
         }
         assert states["node-2"] == "blocked"
 
+    def test_cold_chain_with_never_run_upstream_is_ready_not_blocked(self, uid):
+        """真机首位 bug 回归：链从未跑过、上游无任何候选产物时，下游引用上游
+        不能计为 blocked——上游届时会真跑并产出。运行语义与预览预信一致。"""
+        lyrics = _lyrics_node()
+        image = {
+            "id": "node-2",
+            "type": "image",
+            "name": "生成封面",
+            "capability_id": "image.generate",
+            "params": {"image_prompt": "${upstream.result.content} 封面"},
+            "x": 600,
+            "y": 280,
+        }
+        edges = [*_SIMPLE_EDGES, {"source": "node-1", "target": "node-2"}]
+        _save_chain_draft(uid, [lyrics, image], edges)
+
+        preview = workflow_service.get_run_preview(uid, None)
+
+        assert preview["ready"] is True
+        assert preview["reason"] is None
+        states = {b["node_id"]: b["state"] for c in preview["chains"] for b in c["blocks"]}
+        assert states == {"node-1": "cold", "node-2": "cold"}
+        # 保守计费：两块都计预占价（届时下游可能转缓存复用是减项不是增项）
+        image_estimate = float(Decimal(str(config.BILLING_IMAGE_RESERVE_CREDITS)))
+        assert preview["total_cost_credits"] == _lyrics_estimate() + image_estimate
+
+    def test_chain_blocked_by_upstream_shows_chained_reason(self, uid):
+        """上游被卡（多版本未选）时，下游引用点也要被卡，且明说被谁连累。"""
+        lyrics = _lyrics_node(
+            candidates=[
+                {"id": "c1", "status": "succeeded", "content": "A 版", "created_at": "t"},
+                {"id": "c2", "status": "succeeded", "content": "B 版", "created_at": "t"},
+            ],
+            selectedCandidateId=None,
+        )
+        image = {
+            "id": "node-2",
+            "type": "image",
+            "name": "生成封面",
+            "capability_id": "image.generate",
+            "params": {"image_prompt": "${upstream.result.content} 封面"},
+            "x": 600,
+            "y": 280,
+        }
+        video = {
+            "id": "node-3",
+            "type": "video",
+            "name": "生成视频",
+            "capability_id": "video.generate",
+            "params": {"video_prompt": "${upstream.result.content}"},
+            "x": 900,
+            "y": 280,
+        }
+        edges = [
+            {"source": workflow_service.INPUT_ID, "target": "node-1"},
+            {"source": "node-1", "target": "node-2"},
+            {"source": "node-2", "target": "node-3"},
+            {"source": "node-3", "target": workflow_service.OUTPUT_ID},
+        ]
+        _save_chain_draft(uid, [lyrics, image, video], edges)
+
+        preview = workflow_service.get_run_preview(uid, None)
+
+        assert preview["ready"] is False
+        reasons = {
+            b["node_id"]: b["reason"] for c in preview["chains"] for b in c["blocks"]
+        }
+        assert "选一个" in (reasons["node-2"] or "")
+        assert "上游" in (reasons["node-3"] or "") and "不能产出" in (reasons["node-3"] or "")
+
+    def test_user_style_draft_groups_by_registry_not_node_fields(self, uid):
+        """Bug 回归：节点本体不带 chain_no 的用户手搭画布，分组归属必须走注册表。
+        （旧实现读 node.chain_no，会让用户搭的链全部掉进「未登记链」。）"""
+        node = _lyrics_node()
+        node.pop("chain_no")
+        node.pop("chain_id")
+        _save_chain_draft(uid, [node], _SIMPLE_EDGES)
+
+        preview = workflow_service.get_run_preview(uid, None)
+
+        assert len(preview["chains"]) == 1
+        assert preview["chains"][0]["chain_no"] == 1
+        assert preview["chains"][0]["label"] == "测试链"
+
     def test_unlinked_canvas_is_not_ready_with_reason(self, uid):
         # 只写了节点没从输入接线
         _save_chain_draft(uid, [_lyrics_node()], [])
@@ -254,6 +338,30 @@ class TestListRuns:
         listing = workflow_service.list_runs(other, None)
 
         assert all(r["run_id"] != run_id for r in listing["runs"])
+
+
+class TestReusedPersistence:
+    def test_reused_step_status_persists_and_counts_as_done(self, uid):
+        """迁移 v17 回归：'reused' 状态必须能落库且计入进度——v16 之前的 CHECK
+        约束会在快照命中路径扳 IntegrityError（真机 run-0d88a0ede71d 实证炸链）。"""
+        run_id = _mk_run(uid)
+        step = workflow_run_repo.create_step(
+            step_id=f"step-{uuid.uuid4().hex[:8]}",
+            run_id=run_id,
+            node_id="node-1",
+            capability_id="lyrics.generate",
+            input_payload={"theme": "复用"},
+            created_at="2026-10-16T00:00:03+00:00",
+        )
+        workflow_run_repo.finish_step(
+            step["id"], "reused", {"content": "歌词", "reused": True}, None
+        )
+
+        detail = workflow_service.get_run_status_detail(uid, None)
+
+        assert any(s["status"] == "reused" for s in detail["steps"])
+        # 出账：reused 计入 done，不然运行中的进度条永远缺一格
+        assert detail["progress"]["done"] == detail["progress"]["total"]
 
 
 class TestKeepFlag:
