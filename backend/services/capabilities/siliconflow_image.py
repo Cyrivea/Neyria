@@ -89,6 +89,7 @@ def generate_image(inputs: ImageGenerateInput) -> dict[str, Any]:
         "path": f"/api/assets/{filename}",
         "capability_id": "image.generate",
         "prompt_snapshot": inputs.model_dump(),
+        "byte_size": len(downloaded.content),
     }
 
     return {

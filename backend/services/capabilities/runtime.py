@@ -244,11 +244,17 @@ async def _write_asset(asset: dict, context: CapabilityContext) -> None:
     try:
         from repositories import asset_repo
 
-        # 按扩展名推导资产种类：视频 Block 与图像 Block 共用这条落库路径
+        # 按扩展名推导资产种类与 MIME：图片不一定是 PNG（kunbot 会出 JPEG），视频 MP4。
         suffix = Path(asset["filename"]).suffix.lower()
-        kind, content_type = (
-            ("video", "video/mp4") if suffix == ".mp4" else ("image", "image/png")
-        )
+        if suffix == ".mp4":
+            kind, content_type = "video", "video/mp4"
+        elif suffix in (".jpg", ".jpeg"):
+            kind, content_type = "image", "image/jpeg"
+        elif suffix == ".webp":
+            kind, content_type = "image", "image/webp"
+        else:
+            kind, content_type = "image", "image/png"
+        byte_size = int(asset.get("byte_size") or 0)
 
         await asyncio.to_thread(
             asset_repo.insert,
@@ -259,7 +265,7 @@ async def _write_asset(asset: dict, context: CapabilityContext) -> None:
             kind=kind,
             filename=asset["filename"],
             content_type=content_type,
-            byte_size=0,
+            byte_size=byte_size,
             prompt_snapshot=asset.get("prompt_snapshot"),
             usage_event_id=None,
             created_at=datetime.now(UTC).isoformat(),

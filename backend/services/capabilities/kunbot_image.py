@@ -37,6 +37,17 @@ def _assets_dir() -> Path:
     return out
 
 
+def _sniff_ext(blob: bytes) -> str:
+    """从魔数里嗅探真实图像格式，文件扩展名如实命名（BMP/PNG/JPEG/WEBP）。"""
+    if blob.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if blob.startswith(b"\x89PNG"):
+        return ".png"
+    if blob.startswith(b"RIFF") and blob[8:12] == b"WEBP":
+        return ".webp"
+    return ".png"
+
+
 def generate_image(inputs: ImageGenerateInput) -> dict[str, Any]:
     """真实出图（Kunbot 网关）：远程生成 → 立即转存本地 → 返回本地持久 URL。"""
     if not config.KUNBOT_API_KEY:
@@ -44,6 +55,7 @@ def generate_image(inputs: ImageGenerateInput) -> dict[str, Any]:
 
     # 控制信号全走结构化参数；prompt 只承載画面描述，味道/色调用后缀轻量引导
     final_prompt = f"{inputs.prompt}。风格：{inputs.style}。色调：{inputs.palette}。"
+    # 实测：7sref 路由只对 b64_json 给 200（付报酬真言）；URL 形态在网关层报错，避免猜。
     response = httpx.post(
         f"{config.KUNBOT_IMAGE_BASE.rstrip('/')}/images/generations",
         headers={
@@ -55,6 +67,7 @@ def generate_image(inputs: ImageGenerateInput) -> dict[str, Any]:
             "prompt": final_prompt,
             "size": _RATIO_TO_SIZE[inputs.ratio],
             "n": 1,
+            "response_format": "b64_json",
         },
         timeout=180.0,
     )
@@ -70,17 +83,20 @@ def generate_image(inputs: ImageGenerateInput) -> dict[str, Any]:
         raise RuntimeError("图像 API 返回了空结果")
     first = images[0] if isinstance(images[0], dict) else {}
 
-    filename = f"{uuid.uuid4().hex}.png"
-    path = _assets_dir() / filename
+    blob: bytes
     if first.get("b64_json"):
-        path.write_bytes(base64.b64decode(first["b64_json"]))
+        blob = base64.b64decode(first["b64_json"])
     elif first.get("url"):
-        # 临时 URL 立即转存 —— 不转存明天就是一张破图
+        # 万一哪天网关改回 URL 回传，也兼容（临时链到期前要赶紧下）
         downloaded = httpx.get(first["url"], timeout=120.0, follow_redirects=True)
         downloaded.raise_for_status()
-        path.write_bytes(downloaded.content)
+        blob = downloaded.content
     else:
         raise RuntimeError("图像 API 返回了空结果")
+
+    filename = f"{uuid.uuid4().hex}{_sniff_ext(blob)}"
+    path = _assets_dir() / filename
+    path.write_bytes(blob)
 
     asset_row = {
         "asset_id": f"asset-{uuid.uuid4().hex[:12]}",
@@ -88,6 +104,7 @@ def generate_image(inputs: ImageGenerateInput) -> dict[str, Any]:
         "path": f"/api/assets/{filename}",
         "capability_id": "image.generate",
         "prompt_snapshot": inputs.model_dump(),
+        "byte_size": len(blob),
     }
 
     return {

@@ -134,6 +134,7 @@ def generate_video(inputs: VideoGenerateInput) -> dict[str, Any]:
         "path": f"/api/assets/{filename}",
         "capability_id": "video.generate",
         "prompt_snapshot": inputs.model_dump(),
+        "byte_size": len(downloaded.content),
     }
 
     return {
