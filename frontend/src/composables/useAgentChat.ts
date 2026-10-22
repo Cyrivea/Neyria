@@ -32,8 +32,9 @@ import type { WorkflowDraft } from '@/serve/workflow'
 // 该常量只是双保险，不再担当常见发现限速误杀的元凶（原来是 10s，上了游偶发
 // 限速时 SDK 重试还没跑完就被掐）。
 const AGENT_FIRST_TOKEN_TIMEOUT_MS = 30000
-// 防卡死看门狗：首个事件到达后，任何事件（content/tool/snapshot/done）
+// 防卡死看门狗：首个事件到达后，任何事件（content/tool/snapshot/done/heartbeat）
 // 都会重置 60s 计时；超时就主动中断并给用户一句明确的错误结果。
+// heartbeat 闲情机制说明：推理模型的思考期会连续无正文增量，心跳充活性信号。
 const AGENT_STREAM_IDLE_TIMEOUT_MS = 60000
 
 interface UseAgentChatOptions {
@@ -266,10 +267,13 @@ export function useAgentChat(options: UseAgentChatOptions) {
             }
             typewriter.push(event.content)
           },
-          // C27：开工心跳到 -> 首 token 看门狗提前退役（后端活着且上报路径已通）；
-          // 故意不重置 60s 空闲计时——心跳不是内容，职业防卡死仍由空闲看门狗负责。
+          // C27：开工心跳到 -> 首 token 看门狗提前退役（后端活着且上报路径已通）。
+          // 拖架升级：心跳兼负责活动态信号——上游有字节在流（传感器增量也算），
+          // 空闲看门狗重置（推理模型 GLM-5.3 的思考期静音上十秒，不重置会误杀）。
+          // 兜底不能养：这轮心跳源头是上游真增量，不是后端自说自话，赋能安全。
           onHeartbeat() {
             clearFirstTokenTimeout()
+            armStreamIdleTimeout(controller)
           },
           onWorkflowSnapshot(event) {
             armStreamIdleTimeout(controller)

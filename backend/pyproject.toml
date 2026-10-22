@@ -62,6 +62,9 @@ ignore = ["RUF001", "RUF002", "RUF003"]
 "tests/**" = ["T20"]
 # 一次性分析脚本用 print 输出进度是设计行为；开头必须 sys.path 调整路径再导业务模块
 "scripts/**" = ["T20", "E402"]
+# QA 驱动脚本是手动起停的人工验收仪：进程级生命周期（Popen 文件句柄活到底）+ 紧凑布尔
+# 断言写法是其特性，不是 oid。按类精准豁免，业务代码不受益。
+"scripts/qa/**" = ["T20", "E402", "E701", "E702", "SIM105", "SIM115"]
 
 [tool.ruff.lint.flake8-bugbear]
 # FastAPI 依赖注入惯用法：默认参数里调用 Depends()/Query()/File() 是框架设计，不是 B008 要抓的 bug

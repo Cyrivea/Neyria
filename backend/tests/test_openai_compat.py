@@ -188,3 +188,22 @@ class TestComplete:
         client = _client(monkeypatch, script)
         reply = client.complete(model="m", messages=[])
         assert reply.usage is None  # 宁缺不造数
+
+
+class TestReasoningDeltas:
+    def test_reasoning_deltas_become_flagged_stream_events(self, monkeypatch):
+        """推理模型的思考增量（kunbot/GLM-5.3 路径写作 reasoning）不上屏但应作为活性信号透出。"""
+        events = [
+            {"choices": [{"delta": {"reasoning": "让我想想"}}]},
+            {"choices": [{"delta": {"reasoning_content": "再想一想"}}]},
+            {"choices": [{"delta": {"content": "答案"}}]},
+        ]
+        script = {
+            "GET": [_FakeResp(status_code=500)],
+            "STREAM": [_FakeResp(lines=_sse_lines(events))],
+        }
+        client = _client(monkeypatch, script)
+        deltas = [d for d in client.stream(model="m", messages=[])]
+        # 前两条是活性心跳（reasoning=True 且 content 空），最后一条是正文
+        assert [d.reasoning for d in deltas] == [True, True, False]
+        assert deltas[-1].content == "答案"

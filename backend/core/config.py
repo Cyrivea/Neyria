@@ -130,6 +130,13 @@ BILLING_RESERVATION_STALE_SECONDS = int(os.getenv("BILLING_RESERVATION_STALE_SEC
 # Worker 周期性调用 sweep_stale_reservations 的间隔；另外 get_balance 还有请求级的惰性清理双保险。
 BILLING_SWEEP_INTERVAL_SECONDS = int(os.getenv("BILLING_SWEEP_INTERVAL_SECONDS", "60"))
 
+# ===== WF1-③-v2 档案馆自动清理 =====
+# 运行记录过期天数上限（含产物行与磁盘文件）：未被「保留」标记的 finished/failed/cancelled 运行
+# 过期即收。设为 0 即再也不自动收（档案馆只增不删除）。默认值是 constrained 的实现量，不是营销量。
+ARCHIVE_RETENTION_DAYS = int(os.getenv("ARCHIVE_RETENTION_DAYS", "30"))
+# 每 N 秒扫一次库存；独立于计费扫描，但都在同一个 Worker 循环里。
+ARCHIVE_SWEEP_INTERVAL_SECONDS = int(os.getenv("ARCHIVE_SWEEP_INTERVAL_SECONDS", "3600"))
+
 # ===== 工具执行超时（秒）：超过即中断并回给模型一条明确的超时结果 =====
 TOOL_TIMEOUT_SECONDS = int(os.getenv("TOOL_TIMEOUT_SECONDS", "120"))
 

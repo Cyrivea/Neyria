@@ -480,3 +480,44 @@ class TestRouteRegistration:
         assert (("DELETE",), "/workflows/runs/{run_id}") in table
         # 存量端点仍在
         assert (("GET",), "/workflows/runs/{run_id}") in table
+
+
+class TestArchiveSweep:
+    """WF1-③-v2 自动清理策略：只收过期+未保留+终态。"""
+
+    def _mk_expired(self, uid, *, days: int, kept: bool = False, status: str = "succeeded") -> str:
+        from datetime import UTC, datetime, timedelta
+
+        created = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+        run_id = f"run-{uuid.uuid4().hex[:12]}"
+        workflow_run_repo.create(
+            run_id, uid, None, 1,
+            {"nodes": [], "edges": [], "chains": []}, None, None, created,
+            env_snapshot=None,
+        )
+        workflow_run_repo.update_status(run_id, status, error=None, started_at=created, finished_at=created)
+        if kept:
+            workflow_run_repo.set_kept(uid, run_id, True)
+        return run_id
+
+    def test_expired_unkept_terminal_runs_swept(self, uid, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "DOCUMENT_STORAGE_DIR", str(tmp_path / "docs"))
+        old = self._mk_expired(uid, days=40)
+        kept = self._mk_expired(uid, days=40, kept=True)
+        fresh = self._mk_expired(uid, days=2)
+        active = self._mk_expired(uid, days=40, status="running")
+
+        out = workflow_service.sweep_run_archives(30)
+
+        assert out["removed"] == 1
+        assert workflow_run_repo.get(uid, old) is None            # 扫掉
+        assert workflow_run_repo.get(uid, kept) is not None       # 保留豁免
+        assert workflow_run_repo.get(uid, fresh) is not None      # 未过期
+        assert workflow_run_repo.get(uid, active) is not None     # 活跃不动
+
+    def test_retention_zero_disables_sweep(self, uid):
+        old = self._mk_expired(uid, days=3650)
+        # 天数=0 意味着关掉：只看未被调用就该无事发生——上限改成 0 时拿不到候选集
+        out = workflow_service.sweep_run_archives(0)
+        assert out["removed"] == 0
+        assert workflow_run_repo.get(uid, old) is not None

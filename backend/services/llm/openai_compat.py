@@ -64,6 +64,13 @@ class _OpenAISSEStream:
                     continue
                 delta = choices[0].get("delta") or {}
                 calls = delta.get("tool_calls") or []
+                # 推理模型的思考增量（本网关的 GLM-5.3 写作 reasoning；OpenAI 面那一系写作
+                # reasoning_content）（不保证与正文同片）。不上屏，只作为「上游还活着」
+                # 的心跳卖给编排层——前端空闲看门狗收到就不杀活流。
+                has_reasoning = bool(delta.get("reasoning") or delta.get("reasoning_content"))
+                if has_reasoning and not delta.get("content") and not calls:
+                    yield StreamDelta(reasoning=True)
+                    continue
                 yield StreamDelta(
                     content=delta.get("content") or "",
                     tool_calls=[

@@ -609,3 +609,24 @@ def test_scrubber_strips_protocol_junk_fragments():
     out += scr.flush()
     assert "</tool_call>" not in out and "</arg_value>" not in out
     assert "答案" in out and "尾巴" in out
+
+
+# ---------- K27R：推理模型的思考期心跳（不让 60s 空闲看门狗误杀活流） ----------
+
+
+def test_reasoning_deltas_emit_throttled_heartbeats_not_content(monkeypatch, persisted):
+    """上游是推理模型时内容面什么也不出，但 SSE 必须有心跳把活性信号传给前端。"""
+    deltas = [
+        chat_orchestrator.StreamDelta(reasoning=True),
+        chat_orchestrator.StreamDelta(reasoning=True),
+        chat_orchestrator.StreamDelta(content="你好"),
+        chat_orchestrator.StreamDelta(content="世界"),
+    ]
+    _fake, events = run_chat(monkeypatch, [deltas])
+    event_types = [e["type"] for e in events]
+    assert "heartbeat" in event_types
+    # 至少有两条心跳：承建开锁（C27）+ 思考增量节流各一条
+    assert event_types.count("heartbeat") >= 2
+    # 正文只有正文，没有 reasoning 垃圾
+    payload = "".join(e["content"] for e in events_of(events, "content"))
+    assert "reasoning" not in payload and payload.endswith("你好世界")

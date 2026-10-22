@@ -9,7 +9,7 @@ from typing import Any
 
 from core import config
 from repositories import job_repo
-from services import billing_service
+from services import billing_service, workflow_service
 from workers.dispatcher import JOB_HANDLERS, JobCancelled
 
 logger = logging.getLogger("job_worker")
@@ -121,6 +121,8 @@ class JobWorker:
         last_recovery = time.monotonic()
         # I11：计费预占是冻结的真金白银，清扫不能等「正好有人看余额」——进程崩溃后超时预占必须自动回收。
         last_billing_sweep = 0.0  # 启动即先扫一次，吞掉上次崩溃留下的尾巴
+        # WF1-③-v2：档案馆自适应周期清扫，未保留 + 超期终态运行连带产物文件清理
+        last_archive_sweep = time.monotonic()  # 首次等等扫一次，启动即扫拖慢热启动
         while not self.stop_requested:
             if time.monotonic() - last_recovery >= config.JOB_LEASE_SECONDS:
                 try:
@@ -146,6 +148,26 @@ class JobWorker:
                         "Worker 清扫计费预占时数据库暂不可用", extra={"evt": "billing_sweep_db_error"}
                     )
                 last_billing_sweep = time.monotonic()
+            if (
+                config.ARCHIVE_RETENTION_DAYS > 0
+                and time.monotonic() - last_archive_sweep >= config.ARCHIVE_SWEEP_INTERVAL_SECONDS
+            ):
+                try:
+                    outcome = workflow_service.sweep_run_archives(config.ARCHIVE_RETENTION_DAYS)
+                    if outcome["removed"]:
+                        logger.info(
+                            "档案馆清扫完成",
+                            extra={
+                                "evt": "archive_sweep_completed",
+                                "removed": outcome["removed"],
+                                "files_removed": outcome["files_removed"],
+                            },
+                        )
+                except sqlite3.OperationalError:
+                    logger.warning(
+                        "Worker 清扫档案馆时数据库暂不可用", extra={"evt": "archive_sweep_db_error"}
+                    )
+                last_archive_sweep = time.monotonic()
             try:
                 has_job = self.run_once()
             except sqlite3.OperationalError:

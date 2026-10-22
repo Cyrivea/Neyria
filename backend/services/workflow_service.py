@@ -1265,6 +1265,38 @@ def delete_run(user_id: int, run_id: str) -> dict[str, Any]:
     return {"deleted": True, "run_id": run_id, "files_removed": files_removed, "refund": False}
 
 
+def sweep_run_archives(retention_days: int) -> dict[str, Any]:
+    """WF1-③-v2：清掉非保留 + 过限的老运行档案（记录+步骤+资产行+磁盘文件）。
+
+    「满意才保留」是用户意图唯一信号（PATCH keep）；未标记保留的产物才会被扫。
+    与本模块 delete_run 循环同一套语义：积分不退是帐面现实（settle-at-完成），
+    只要资产在磁盘上存在，档案运行时就进余额账单（帆后是闲置的积田）。"""
+    if retention_days <= 0:
+        return {"removed": 0, "files_removed": 0}
+    candidates = workflow_run_repo.list_expired_terminal_runs(retention_days)
+    removed = 0
+    files_removed = 0
+    for run in candidates:
+        try:
+            outcome = delete_run(run["user_id"], run["id"])
+            removed += 1
+            files_removed += int(outcome.get("files_removed", 0))
+        except AppError:
+            # 竞态运行时取到活跃 run 或被别人删了——都跳过下一轮再扫
+            continue
+    if removed:
+        logger.info(
+            "已到期的运行档案被清扫",
+            extra={
+                "evt": "workflow_archive_sweep",
+                "removed": removed,
+                "files_removed": files_removed,
+                "retention_days": retention_days,
+            },
+        )
+    return {"removed": removed, "files_removed": files_removed}
+
+
 def set_run_kept(user_id: int, run_id: str, kept: bool) -> dict[str, Any]:
     """「满意才保留」旗标：未来自动清理策略的豁免名单。"""
     if workflow_run_repo.get(user_id, run_id) is None:

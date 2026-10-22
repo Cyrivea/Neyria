@@ -524,8 +524,21 @@ async def _orchestrate(
             scrubber = _ToolNameScrubber()
             # 兼容少数模型/代理把 function calling 错误降级成普通文本的情况。
             # 只暂存“像工具名开头”的前缀，普通回答仍逐 chunk 流出。
+            # 推理流的中途活跃度心跳：首个思考增量立即发（零延迟信心号），后续 5s 节流
+            reasoning_heartbeat_last: float | None = None
             async for delta in iterate_in_threadpool(stream):
                 if not isinstance(delta, StreamDelta):
+                    continue
+                if delta.reasoning:
+                    # 推理模型的思考增量：内容不上屏，但属「上游还健在」的签约信号。
+                    # 思考期实测上数十秒（GLM-5.3 全链 1986 字 reasoning），不心跳会被
+                    # 前端 60s 空闲看门狗误杀。
+                    if (
+                        reasoning_heartbeat_last is None
+                        or time.perf_counter() - reasoning_heartbeat_last >= 5.0
+                    ):
+                        reasoning_heartbeat_last = time.perf_counter()
+                        yield _sse({"type": "heartbeat"})
                     continue
                 if delta.tool_calls:
                     if textual_tool_candidate:

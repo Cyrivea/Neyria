@@ -28,10 +28,14 @@ class ToolCallDelta:
 
 @dataclass
 class StreamDelta:
-    """一次流式增量：纯文本 XOR 工具调用分片（Provider 极少两者同行，上层按序处理）。"""
+    """一次流式增量：纯文本 XOR 工具调用分片（Provider 极少两者同行，上层按序处理）。
+
+    reasoning=True 表示这是推理模型（GLM-5.3/DeepSeek V4 流）的思考增量：
+    不上屏，但在中途长静默时计作「上游还活着」心跳信号，防止前端空闲看门狗误杀。"""
 
     content: str = ""
     tool_calls: list[ToolCallDelta] = field(default_factory=list)
+    reasoning: bool = False
 
 
 @dataclass

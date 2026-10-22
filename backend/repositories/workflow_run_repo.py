@@ -110,6 +110,24 @@ def list_recent(user_id: int, project_id: int | None, limit: int = 5) -> list[di
     return [_run(row) for row in rows]
 
 
+def list_expired_terminal_runs(retention_days: int, limit: int = 200) -> list[dict[str, Any]]:
+    """WF1-③-v2 自动清理策略的腺头：终态运行 + 未保留 + created_at 超过上限天数。
+
+    ISO 时间戳全以 UTC 写入，字符串字典序比较即等价于时间序，不需要换轮格式。"""
+    from datetime import UTC, datetime, timedelta
+
+    cutoff = (datetime.now(UTC) - timedelta(days=retention_days)).isoformat()
+    with db_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            f"SELECT {_RUN_COLUMNS} FROM workflow_runs "
+            "WHERE kept=0 AND status IN ('succeeded','failed','cancelled') "
+            "AND created_at < ? ORDER BY created_at ASC LIMIT ?",
+            (cutoff, max(1, min(limit, 500))),
+        ).fetchall()
+    return [_run(row) for row in rows]
+
+
 def set_kept(user_id: int, run_id: str, kept: bool) -> bool:
     """WF1-③「满意才保留」旗标。返回是否有行被改动（供路由判 404）。"""
     with db_connection() as conn:
