@@ -7,7 +7,7 @@ from agents.prompt_loader import reload_cache
 def test_sections_assembled_in_filename_order():
     prompt = neyria.build_system_prompt("", "")
     # 四个段落的标志性开头必须按序出现
-    idx_id = prompt.index("你是Neyria")
+    idx_id = prompt.index("你是 Neyria")
     idx_kb = prompt.index("你有两类信息来源")
     idx_tools = prompt.index("工具使用规则：")
     assert idx_id < idx_kb < idx_tools

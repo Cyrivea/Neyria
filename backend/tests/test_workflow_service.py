@@ -297,10 +297,12 @@ def test_add_chain_rejects_missing_required_slot(memory_repo):
     assert "theme" in exc.value.detail
 
 
-def test_add_chain_rejects_invalid_slot_value(memory_repo):
-    with pytest.raises(AppError) as exc:
-        _add_chain({"theme": "夏夜", "style": "死亡金属"})  # 不在 LyricsStyle 枚举内
-    assert exc.value.status_code == 422
+def test_add_chain_accepts_freeform_style(memory_repo):
+    """2026-10-25 创作自由化：风格/情绪这类感性槽位不再被枚举束缚，用户写"死亡金属"也合法。"""
+    _add_chain({"theme": "夏夜", "style": "死亡金属"})  # 能不能接到不落库才是唯一判断
+    draft = workflow_service.get_draft(1, None)["draft"]
+    lyr_node = next(n for n in draft["nodes"] if n.get("capability_id") == "lyrics.generate")
+    assert lyr_node["params"]["style"] == "死亡金属"
 
 
 def test_add_chain_rejects_empty_and_oversized_batch(memory_repo):
@@ -475,11 +477,13 @@ def test_update_chain_params_wrong_capability_422(memory_repo):
     assert "没有" in exc.value.detail
 
 
-def test_update_chain_params_invalid_value_422(memory_repo):
+def test_update_chain_params_freeform_value(memory_repo):
+    """同上：样式字段现在接自由文本，不是 Literal（提示词中的感性词汇）。"""
     _add_chain()
-    with pytest.raises(AppError) as exc:
-        update_chain_params(1, None, 1, "lyrics", {"style": "死亡金属"})
-    assert exc.value.status_code == 422
+    update_chain_params(1, None, 1, "lyrics", {"style": "死亡金属"})
+    draft = workflow_service.get_draft(1, None)["draft"]
+    lyr_node = next(n for n in draft["nodes"] if n.get("capability_id") == "lyrics.generate")
+    assert lyr_node["params"]["style"] == "死亡金属"
 
 
 def test_update_chain_params_accepts_capability_alias_and_full_id(memory_repo):

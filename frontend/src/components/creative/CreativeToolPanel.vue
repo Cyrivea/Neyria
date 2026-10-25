@@ -122,16 +122,22 @@
               <div class="field-row">
                 <div class="field">
                   <span class="field-label">曲风</span>
-                  <select
-                    class="field-control field-select"
+                  <!-- 2026-10-25 创作自由化：枚举横不刑了——随便写，下拉只是推荐 -->
+                  <input
+                    class="field-control"
+                    type="text"
+                    list="lyrics-style-suggestions"
                     :value="tool.params.style"
-                    @change="update('style', $event)"
-                  >
-                    <option>流行抒情</option>
-                    <option>城市民谣</option>
-                    <option>电子流行</option>
-                    <option>摇滚叙事</option>
-                  </select>
+                    placeholder="如：流行抒情、独立摇滚、古典交响…"
+                    maxlength="60"
+                    @input="update('style', $event)"
+                  />
+                  <datalist id="lyrics-style-suggestions">
+                    <option value="流行抒情"></option>
+                    <option value="城市民谣"></option>
+                    <option value="电子流行"></option>
+                    <option value="摇滚叙事"></option>
+                  </datalist>
                 </div>
                 <div class="field">
                   <span class="field-label">语言</span>
@@ -148,17 +154,22 @@
               </div>
               <div class="field">
                 <span class="field-label">情绪方向</span>
-                <select
-                  class="field-control field-select"
+                <input
+                  class="field-control"
+                  type="text"
+                  list="lyrics-mood-suggestions"
                   :value="tool.params.mood"
-                  @change="update('mood', $event)"
-                >
-                  <option>温柔、克制</option>
-                  <option>明亮、轻快</option>
-                  <option>忧郁、克制</option>
-                  <option>热烈、昂扬</option>
-                  <option>孤独、怀旧</option>
-                </select>
+                  placeholder="如：温柔免丶、忧郁狂欢、孤独怀旧…"
+                  maxlength="60"
+                  @input="update('mood', $event)"
+                />
+                <datalist id="lyrics-mood-suggestions">
+                  <option value="温柔、克制"></option>
+                  <option value="明亮、轻快"></option>
+                  <option value="忧郁、克制"></option>
+                  <option value="热烈、昂扬"></option>
+                  <option value="孤独、怀旧"></option>
+                </datalist>
               </div>
             </template>
 
@@ -176,16 +187,21 @@
               <div class="field-row">
                 <div class="field">
                   <span class="field-label">视觉风格</span>
-                  <select
-                    class="field-control field-select"
+                  <input
+                    class="field-control"
+                    type="text"
+                    list="image-style-suggestions"
                     :value="tool.params.style"
-                    @change="update('style', $event)"
-                  >
-                    <option>电影概念艺术</option>
-                    <option>二次元插画</option>
-                    <option>写实摄影</option>
-                    <option>复古胶片</option>
-                  </select>
+                    placeholder="如：电影概念艺术、抽象水墨、赛博朋克…"
+                    maxlength="80"
+                    @input="update('style', $event)"
+                  />
+                  <datalist id="image-style-suggestions">
+                    <option value="电影概念艺术"></option>
+                    <option value="二次元插画"></option>
+                    <option value="写实摄影"></option>
+                    <option value="复古胶片"></option>
+                  </datalist>
                 </div>
                 <div class="field">
                   <span class="field-label">画面比例</span>
@@ -203,17 +219,22 @@
               </div>
               <div class="field">
                 <span class="field-label">色彩方向</span>
-                <select
-                  class="field-control field-select"
+                <input
+                  class="field-control"
+                  type="text"
+                  list="image-palette-suggestions"
                   :value="tool.params.palette"
-                  @change="update('palette', $event)"
-                >
-                  <option>深蓝与紫色</option>
-                  <option>黑白</option>
-                  <option>暖金</option>
-                  <option>低饱和绿色</option>
-                  <option>高对比彩色</option>
-                </select>
+                  placeholder="如：黑白、深蓝与紫色、暖金、酸橙…"
+                  maxlength="80"
+                  @input="update('palette', $event)"
+                />
+                <datalist id="image-palette-suggestions">
+                  <option value="黑白"></option>
+                  <option value="深蓝与紫色"></option>
+                  <option value="暖金"></option>
+                  <option value="低饱和绿色"></option>
+                  <option value="高对比彩色"></option>
+                </datalist>
               </div>
             </template>
 
@@ -231,16 +252,21 @@
               <div class="field-row">
                 <div class="field">
                   <span class="field-label">视觉风格</span>
-                  <select
-                    class="field-control field-select"
+                  <input
+                    class="field-control"
+                    type="text"
+                    list="video-style-suggestions"
                     :value="tool.params.style"
-                    @change="update('style', $event)"
-                  >
-                    <option>电影写实</option>
-                    <option>二次元动画</option>
-                    <option>3D 渲染</option>
-                    <option>复古胶片</option>
-                  </select>
+                    placeholder="如：电影写实、二手拉机械功、二次元动画…"
+                    maxlength="80"
+                    @input="update('style', $event)"
+                  />
+                  <datalist id="video-style-suggestions">
+                    <option value="电影写实"></option>
+                    <option value="二次元动画"></option>
+                    <option value="3D 渲染"></option>
+                    <option value="复古胶片"></option>
+                  </datalist>
                 </div>
                 <div class="field">
                   <span class="field-label">画面比例</span>
