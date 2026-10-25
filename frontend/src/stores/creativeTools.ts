@@ -60,7 +60,7 @@ export const creativeToolCatalog: CreativeToolCatalogItem[] = [
       prompt: '',
       style: '电影概念艺术',
       ratio: '16:9',
-      palette: '深蓝与紫色',
+      palette: '黑白',
     },
   },
   {

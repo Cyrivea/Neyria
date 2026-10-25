@@ -32,7 +32,7 @@ class ImageGenerateInput(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=300)
     style: ImageStyle = "电影概念艺术"
     ratio: ImageRatio = "16:9"
-    palette: ImagePalette = "深蓝与紫色"
+    palette: ImagePalette = "黑白"
 
 
 class VideoGenerateInput(BaseModel):
