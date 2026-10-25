@@ -57,6 +57,13 @@ async function handleBlockClick(event: MouseEvent) {
 <style scoped>
 /* v-html 内容不参与 scoped 属性选择器，内部样式统一走 :deep() 围栏 */
 
+.md-body {
+  font-size: 15px;
+  line-height: 1.78;
+  font-weight: 420;
+  letter-spacing: 0.005em;
+}
+
 .md-body :deep(> :first-child) {
   margin-top: 0;
 }
@@ -66,8 +73,8 @@ async function handleBlockClick(event: MouseEvent) {
 }
 
 .md-body :deep(p) {
-  margin: 0 0 10px;
-  line-height: 1.7;
+  margin: 0 0 12px;
+  line-height: 1.78;
 }
 
 .md-body :deep(h1),
@@ -100,8 +107,8 @@ async function handleBlockClick(event: MouseEvent) {
 }
 
 .md-body :deep(li) {
-  margin: 3px 0;
-  line-height: 1.65;
+  margin: 4px 0;
+  line-height: 1.72;
 }
 
 .md-body :deep(li::marker) {
@@ -124,11 +131,12 @@ async function handleBlockClick(event: MouseEvent) {
 }
 
 .md-body :deep(code:not(pre code)) {
-  padding: 2px 6px;
+  padding: 3px 7px;
   border-radius: 6px;
-  font-size: 12.5px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 13px;
+  font-family: var(--font-mono);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.07);
 }
 
 .md-body :deep(blockquote) {
@@ -209,17 +217,18 @@ async function handleBlockClick(event: MouseEvent) {
 
 .md-body :deep(.md-codeblock pre) {
   margin: 0;
-  padding: 12px 14px;
+  padding: 14px 16px;
   overflow-x: auto;
-  font-size: 12.5px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.72;
   scrollbar-width: thin;
 }
 
 .md-body :deep(.md-codeblock pre code) {
-  font-family: ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, monospace;
+  font-family: var(--font-mono);
   background: transparent;
   border: none;
   padding: 0;
+  text-shadow: none;
 }
 </style>

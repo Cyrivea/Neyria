@@ -451,7 +451,7 @@ const visibleMessages = computed(() =>
 .agent-message-list {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 18px;
   padding-bottom: 12px;
   min-height: min-content;
   position: relative;
@@ -499,15 +499,17 @@ const visibleMessages = computed(() =>
 
 .agent-message-bubble {
   max-width: min(92%, 100%);
-  padding: 11px 13px;
+  padding: 13px 16px;
   border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.022)),
     rgba(255, 255, 255, 0.02);
   color: var(--text-primary);
-  font-size: 14px;
-  line-height: 1.65;
+  font-size: 15px;
+  line-height: 1.78;
+  font-weight: 420;
+  letter-spacing: 0.005em;
   white-space: pre-wrap;
   word-break: break-word;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
@@ -774,10 +776,21 @@ const visibleMessages = computed(() =>
 }
 
 .agent-message.is-user .agent-message-bubble {
+  /* 用户边：收紧外宽、右下收一角 —— 读得一眼调顺 */
+  max-width: 78%;
+  border-radius: 20px 20px 7px 20px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.05)),
-    rgba(255, 255, 255, 0.035);
-  border-color: rgba(255, 255, 255, 0.09);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.085), rgba(255, 255, 255, 0.055)),
+    rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* 助手边：更板、更透；左角收住，增亲近感 */
+.agent-message.is-assistant .agent-message-bubble {
+  border-radius: 6px 18px 18px 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015)),
+    rgba(255, 255, 255, 0.015);
 }
 
 .agent-message.is-error .agent-message-bubble {

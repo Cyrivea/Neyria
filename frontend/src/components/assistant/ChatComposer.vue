@@ -296,9 +296,10 @@ onBeforeUnmount(() => {
   resize: none;
   background: transparent;
   color: var(--text-primary);
-  font-size: 17px;
-  font-weight: 400;
-  line-height: 1.7;
+  font-size: 15px;
+  font-weight: 420;
+  line-height: 1.75;
+  letter-spacing: 0.005em;
   padding: 0;
   width: 100%;
   display: block;
