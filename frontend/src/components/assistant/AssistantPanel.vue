@@ -203,7 +203,7 @@ defineExpose({ loadHistory, scrollToBottom })
   z-index: 40;
   display: grid;
   place-items: center;
-  background: rgba(10, 12, 20, 0.62);
+  background: rgba(14, 14, 14, 0.62);
   pointer-events: none; /* 覆盖层不吃事件，否则 drop 会被它劫走 */
 }
 
@@ -381,7 +381,7 @@ defineExpose({ loadHistory, scrollToBottom })
   height: 44px;
   background: linear-gradient(
     180deg,
-    rgba(4, 4, 5, 0),
+    rgba(4, 4, 4, 0),
     var(--column-bg) 82%,
     var(--column-bg) 100%
   );
@@ -395,7 +395,7 @@ defineExpose({ loadHistory, scrollToBottom })
   padding: 18px 18px 14px;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
   border-radius: 28px;
-  background: linear-gradient(180deg, #171717, #111111 72%, #0b0b0c 100%);
+  background: linear-gradient(180deg, #171717, #111111 72%, #0b0b0b 100%);
   display: flex;
   flex-direction: column;
   gap: 8px;

@@ -610,7 +610,7 @@ function artMark(type: string) {
   pointer-events: auto;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 16px;
-  background: linear-gradient(180deg, #131314 0%, #0f0f10 100%);
+  background: linear-gradient(180deg, #131313 0%, #0f0f0f 100%);
   box-shadow:
     0 24px 64px rgba(0, 0, 0, 0.5),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
@@ -648,7 +648,7 @@ function artMark(type: string) {
 }
 
 .panel-eyebrow {
-  color: #808085;
+  color: #828282;
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -656,7 +656,7 @@ function artMark(type: string) {
 
 .panel-title-copy h2 {
   margin: 3px 0 4px;
-  color: #f2f2f3;
+  color: #f2f2f2;
   font-size: 20px;
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -664,7 +664,7 @@ function artMark(type: string) {
 
 .panel-title-copy p {
   margin: 0;
-  color: #8b8b90;
+  color: #8d8d8d;
   font-size: 12.5px;
   line-height: 1.55;
 }
@@ -678,7 +678,7 @@ function artMark(type: string) {
   border: 1px solid rgba(255, 255, 255, 0.14) !important;
   border-radius: 9px;
   background: rgba(255, 255, 255, 0.03) !important;
-  color: #9a9aa0 !important;
+  color: #9c9c9c !important;
   font-size: 15px;
   cursor: pointer;
   transition:
@@ -699,8 +699,8 @@ function artMark(type: string) {
   padding: 8px 10px;
   border: 1px solid rgba(156, 156, 156, 0.4);
   border-radius: 8px;
-  background: rgba(23, 27, 34, 0.9);
-  color: #c8cdd6;
+  background: rgba(28, 28, 28, 0.9);
+  color: #cecece;
   font-size: 11px;
 }
 
@@ -735,13 +735,13 @@ function artMark(type: string) {
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 12px;
-  color: #d6d6da;
+  color: #d7d7d7;
   font-size: 13px;
   font-weight: 600;
 }
 
 .block-head small {
-  color: #78787d;
+  color: #7a7a7a;
   font-size: 11px;
   font-weight: 400;
 }
@@ -756,7 +756,7 @@ function artMark(type: string) {
   padding: 12px 14px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 10px;
-  background: #0b0b0d;
+  background: #0c0c0c;
 }
 
 .main-input-copy {
@@ -768,19 +768,19 @@ function artMark(type: string) {
 }
 
 .main-input-copy strong {
-  color: #ececf0;
+  color: #ededed;
   font-size: 13px;
   font-weight: 600;
 }
 
 .main-input-copy small {
-  color: #7d7d83;
+  color: #7f7f7f;
   font-size: 11px;
   line-height: 1.5;
 }
 
 .port-mark {
-  color: #b9b9c0;
+  color: #bbbbbb;
   font-size: 20px;
   line-height: 1;
 }
@@ -791,14 +791,14 @@ function artMark(type: string) {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.05);
-  color: #93939a;
+  color: #959595;
   font-size: 10px;
 }
 
 .input-status.is-linked {
   border-color: rgba(255, 255, 255, 0.22);
   background: rgba(255, 255, 255, 0.1);
-  color: #e6e6ea;
+  color: #e7e7e7;
 }
 
 /* ============ 补充参考 ============ */
@@ -817,7 +817,7 @@ function artMark(type: string) {
   padding: 10px 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
-  background: #0b0b0d;
+  background: #0c0c0c;
 }
 
 .reference-type {
@@ -828,7 +828,7 @@ function artMark(type: string) {
   place-items: center;
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.06);
-  color: #c9c9cf;
+  color: #cbcbcb;
   font-size: 13px;
 }
 
@@ -842,14 +842,14 @@ function artMark(type: string) {
 
 .reference-copy strong {
   overflow: hidden;
-  color: #e2e2e6;
+  color: #e3e3e3;
   font-size: 12.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .reference-copy small {
-  color: #78787e;
+  color: #7a7a7a;
   font-size: 10.5px;
 }
 
@@ -862,7 +862,7 @@ function artMark(type: string) {
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
   border-radius: 7px;
   background: transparent;
-  color: #8e8e95 !important;
+  color: #909090 !important;
   font-size: 16px;
   cursor: pointer;
   transition:
@@ -880,7 +880,7 @@ function artMark(type: string) {
   padding: 12px 14px;
   border: 1px dashed rgba(255, 255, 255, 0.12);
   border-radius: 10px;
-  color: #77777d;
+  color: #797979;
   font-size: 12px;
 }
 
@@ -900,11 +900,11 @@ function artMark(type: string) {
   flex: 1;
   min-height: 56px;
   padding: 10px 12px;
-  border: 1px solid #2c2c31;
+  border: 1px solid #2e2e2e;
   border-radius: 10px;
   outline: none;
-  background: #0a0a0c;
-  color: #efeff2;
+  background: #0b0b0b;
+  color: #f0f0f0;
   font-size: 13px;
   line-height: 1.6;
   resize: vertical;
@@ -914,7 +914,7 @@ function artMark(type: string) {
 }
 
 .reference-form textarea:focus {
-  border-color: #8d8d95;
+  border-color: #909090;
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08);
 }
 
@@ -940,7 +940,7 @@ function artMark(type: string) {
 }
 
 .field-label {
-  color: #c9c9cf;
+  color: #cbcbcb;
   font-size: 12.5px;
   font-weight: 500;
 }
@@ -949,11 +949,11 @@ function artMark(type: string) {
   width: 100%;
   min-height: 44px;
   padding: 11px 13px;
-  border: 1px solid #2b2b30;
+  border: 1px solid #2d2d2d;
   border-radius: 10px;
   outline: none;
-  background: #0a0a0c;
-  color: #efeff2;
+  background: #0b0b0b;
+  color: #f0f0f0;
   font-size: 13.5px;
   line-height: 1.6;
   cursor: text;
@@ -964,18 +964,18 @@ function artMark(type: string) {
 }
 
 .field-control::placeholder {
-  color: #62626a;
+  color: #656565;
 }
 
 .field-control:hover {
-  border-color: #3f3f46;
-  background: #0d0d10;
+  border-color: #414141;
+  background: #0e0e0e;
 }
 
 .field-control:focus,
 .field-control:focus-visible {
-  border-color: #9a9aa2;
-  background: #0e0e11;
+  border-color: #9d9d9d;
+  background: #0f0f0f;
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08);
 }
 
@@ -990,8 +990,8 @@ function artMark(type: string) {
 }
 
 .field-select option {
-  background: #161618;
-  color: #efeff2;
+  background: #171717;
+  color: #f0f0f0;
 }
 
 .field-textarea {
@@ -1009,10 +1009,10 @@ function artMark(type: string) {
   overflow: hidden;
   min-height: 44px;
   padding: 11px 13px;
-  border: 1px solid #2b2b30;
+  border: 1px solid #2d2d2d;
   border-radius: 10px;
-  background: #0a0a0c;
-  color: #9c9ca3;
+  background: #0b0b0b;
+  color: #9e9e9e;
   font-size: 13px;
   line-height: 1.6;
   text-overflow: ellipsis;
@@ -1039,13 +1039,13 @@ function artMark(type: string) {
 }
 
 .output-note strong {
-  color: #cfcfd4;
+  color: #d1d1d1;
   font-size: 12.5px;
   font-weight: 600;
 }
 
 .output-note small {
-  color: #74747b;
+  color: #767676;
   font-size: 11px;
   line-height: 1.5;
 }
@@ -1076,13 +1076,13 @@ function artMark(type: string) {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  color: #e4e4e8;
+  color: #e5e5e5;
   font-size: 13px;
   font-weight: 600;
 }
 
 .result-meta {
-  color: #85858c;
+  color: #878787;
   font-size: 10.5px;
   font-weight: 400;
 }
@@ -1091,7 +1091,7 @@ function artMark(type: string) {
   max-height: 380px;
   margin: 10px 0 0;
   overflow: auto;
-  color: #d9d9de;
+  color: #dbdbdb;
   font: inherit;
   font-size: 13px;
   line-height: 1.8;
@@ -1110,13 +1110,13 @@ function artMark(type: string) {
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 10px;
-  color: #d6d6da;
+  color: #d7d7d7;
   font-size: 13px;
   font-weight: 600;
 }
 
 .candidate-head small {
-  color: #78787d;
+  color: #7a7a7a;
   font-size: 11px;
   font-weight: 400;
 }
@@ -1129,7 +1129,7 @@ function artMark(type: string) {
   padding: 10px 12px;
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 10px;
-  background: #0b0b0d;
+  background: #0c0c0c;
 }
 
 .candidate-item.is-selected {
@@ -1152,13 +1152,13 @@ function artMark(type: string) {
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.04);
-  color: #b7b7bd;
+  color: #b9b9b9;
   font-size: 10.5px;
 }
 
 .candidate-status.is-succeeded {
   border-color: rgba(255, 255, 255, 0.26);
-  color: #e6e6ea;
+  color: #e7e7e7;
 }
 
 .candidate-status.is-failed {
@@ -1176,7 +1176,7 @@ function artMark(type: string) {
   margin: 0;
   max-height: 130px;
   overflow: auto;
-  color: #cfcfd4;
+  color: #d1d1d1;
   font: inherit;
   font-size: 12px;
   line-height: 1.7;
@@ -1204,7 +1204,7 @@ function artMark(type: string) {
 }
 
 .foot-hint {
-  color: #77777d;
+  color: #797979;
   font-size: 11.5px;
 }
 
@@ -1235,9 +1235,9 @@ function artMark(type: string) {
 }
 
 .btn-primary {
-  border: 1px solid #ececee !important;
-  background: #ececee !important;
-  color: #0d0d0f !important;
+  border: 1px solid #ededed !important;
+  background: #ededed !important;
+  color: #0e0e0e !important;
 }
 
 .btn-primary:hover:not(:disabled) {
@@ -1253,7 +1253,7 @@ function artMark(type: string) {
 .btn-secondary {
   border: 1px solid rgba(255, 255, 255, 0.16) !important;
   background: rgba(255, 255, 255, 0.03) !important;
-  color: #d9d9de !important;
+  color: #dbdbdb !important;
 }
 
 .btn-secondary:hover {
@@ -1273,7 +1273,7 @@ function artMark(type: string) {
   min-height: 44px;
   border: 1px dashed rgba(255, 255, 255, 0.18) !important;
   background: rgba(255, 255, 255, 0.02) !important;
-  color: #c4c4ca !important;
+  color: #c6c6c6 !important;
   font-size: 13px;
   font-weight: 500;
 }

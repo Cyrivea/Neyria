@@ -176,7 +176,7 @@ async function handleBlockClick(event: MouseEvent) {
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  background: #0d1117;
+  background: #121212;
 }
 
 .md-body :deep(.md-codeblock-head) {

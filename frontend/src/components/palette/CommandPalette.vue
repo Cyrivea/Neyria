@@ -101,7 +101,7 @@ function pick(command: PaletteCommand) {
   display: flex;
   justify-content: center;
   padding-top: 14vh;
-  background: rgba(8, 10, 18, 0.5);
+  background: rgba(12, 12, 12, 0.5);
   backdrop-filter: blur(2px);
 }
 
@@ -109,7 +109,7 @@ function pick(command: PaletteCommand) {
   width: min(520px, 92vw);
   height: min-content;
   border-radius: 16px;
-  background: rgba(22, 24, 36, 0.96);
+  background: rgba(27, 27, 27, 0.96);
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
   overflow: hidden;

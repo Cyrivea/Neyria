@@ -234,7 +234,7 @@ async function retry(jobId: string) {
   color: #d2d2d2;
 }
 .task-status.is-cancelled {
-  color: #a1a1aa;
+  color: #a4a4a4;
 }
 .task-progress {
   height: 3px;

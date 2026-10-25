@@ -89,7 +89,7 @@ const chatStore = useChatStore()
   border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.014)), #111112;
+    linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.014)), #111111;
 }
 
 .attachment-chip {

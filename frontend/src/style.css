@@ -66,7 +66,7 @@ body {
   width: 100%;
   min-height: 100%;
   overflow-x: hidden;
-  background: #040405;
+  background: #040404;
   color: #f4f4f4;
   font-family: var(--font-ui);
   font-weight: 420;
@@ -87,7 +87,7 @@ body {
 
 ::selection {
   background: rgba(181, 181, 181, 0.26);
-  color: #f6f8fc;
+  color: #f9f9f9;
 }
 
 :focus-visible {

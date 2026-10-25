@@ -188,7 +188,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', handleKeydown))
       color-mix(in srgb, var(--tool-color) 26%, transparent),
       transparent 44%
     ),
-    #1f1f22;
+    #202020;
   color: var(--tool-color);
   filter: grayscale(1);
 }

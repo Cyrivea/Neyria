@@ -337,7 +337,7 @@ onUnmounted(() => {
 
 .home-nav.scrolled {
   padding-top: 0;
-  background: rgba(6, 6, 7, 0.82);
+  background: rgba(6, 6, 6, 0.82);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
@@ -599,7 +599,7 @@ onUnmounted(() => {
   font-weight: 400;
   font-size: 1.04em;
   letter-spacing: -0.015em;
-  color: #e9e9ea;
+  color: #e9e9e9;
   padding-bottom: 0.06em;
 }
 

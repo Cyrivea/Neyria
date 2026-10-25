@@ -184,7 +184,7 @@
         aria-label="平移背景画布，不改变工作流形状"
         @click.stop="workflowStore.setMode('pan')"
       >
-        ✋
+        ⤢
       </button>
       <span class="workflow-tool-divider"></span>
       <button
@@ -941,11 +941,11 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  background-color: #0d0e11;
+  background-color: #0f0f0f;
   background-image: radial-gradient(circle, rgba(161, 161, 161, 0.17) 1px, transparent 1px);
   background-position: 10px 10px;
   background-size: 24px 24px;
-  color: #d7d8dc;
+  color: #d9d9d9;
   cursor: default;
   touch-action: none;
 }
@@ -975,15 +975,15 @@ onBeforeUnmount(() => {
   padding: 8px 14px;
   border: 1px solid rgba(156, 156, 156, 0.45);
   border-radius: 8px;
-  background: rgba(23, 27, 34, 0.92);
-  color: #c8cdd6;
+  background: rgba(28, 28, 28, 0.92);
+  color: #cecece;
   font-size: 11px;
   line-height: 1.4;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
 }
 
 .workflow-running-banner strong {
-  color: #f2f4f8;
+  color: #f5f5f5;
 }
 
 .workflow-running-spinner {
@@ -1022,14 +1022,14 @@ onBeforeUnmount(() => {
   padding: 6px 9px;
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 7px;
-  background: rgba(18, 19, 23, 0.82);
-  color: #8f949f;
+  background: rgba(20, 20, 20, 0.82);
+  color: #969696;
   font-size: 10px;
   pointer-events: none;
 }
 
 .workflow-mode-hint strong {
-  color: #d9dce2;
+  color: #dddddd;
   font-weight: 600;
 }
 
@@ -1117,7 +1117,7 @@ onBeforeUnmount(() => {
 }
 
 .workflow-connections .workflow-connection-hit:hover + .workflow-connection-line {
-  stroke: #eef6ff;
+  stroke: #f6f6f6;
   filter: drop-shadow(0 0 4px rgba(196, 196, 196, 0.6));
 }
 
@@ -1136,7 +1136,7 @@ onBeforeUnmount(() => {
   padding: 13px 14px 10px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 13px;
-  background: #242529;
+  background: #262626;
   cursor: grab;
   user-select: none;
   transition:
@@ -1168,12 +1168,12 @@ onBeforeUnmount(() => {
   cursor: grab;
   border-color: color-mix(in srgb, var(--node-color) 55%, transparent);
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.025)), #202126;
+    linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.025)), #222222;
 }
 
 .workflow-node.is-endpoint p {
   margin-top: 8px;
-  color: #989da8;
+  color: #9f9f9f;
 }
 
 .workflow-endpoint-kicker {
@@ -1188,7 +1188,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 7px;
   margin-top: 7px;
-  color: #f1f2f4;
+  color: #f2f2f2;
   font-size: 15px;
   font-weight: 600;
 }
@@ -1212,7 +1212,7 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   place-items: center;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--node-color) 20%, #27282d);
+  background: color-mix(in srgb, var(--node-color) 20%, #292929);
   color: var(--node-color);
   font-size: 14px;
   font-weight: 600;
@@ -1237,14 +1237,14 @@ onBeforeUnmount(() => {
 
 .workflow-node-badge,
 .workflow-node-footer {
-  color: #858993;
+  color: #8b8b8b;
   font-size: 9px;
 }
 
 .workflow-node-heading h3 {
   overflow: hidden;
   margin: 1px 0 0;
-  color: #f0f0f1;
+  color: #f0f0f0;
   font-size: 13px;
   font-weight: 600;
   text-overflow: ellipsis;
@@ -1253,7 +1253,7 @@ onBeforeUnmount(() => {
 
 .workflow-node-number {
   align-self: flex-start;
-  color: #777a83;
+  color: #7c7c7c;
   font-size: 10px;
 }
 
@@ -1261,7 +1261,7 @@ onBeforeUnmount(() => {
   display: -webkit-box;
   overflow: hidden;
   margin: 9px 0 0;
-  color: #a1a4ad;
+  color: #a6a6a6;
   font-size: 10px;
   line-height: 1.45;
   -webkit-box-orient: vertical;
@@ -1280,11 +1280,11 @@ onBeforeUnmount(() => {
   height: 13px;
   margin-top: -6.5px;
   padding: 0;
-  border: 1.5px solid #f4f8fc !important;
+  border: 1.5px solid #f8f8f8 !important;
   border-radius: 50%;
   background: transparent !important;
   box-shadow:
-    0 0 0 1px rgba(10, 13, 18, 0.86),
+    0 0 0 1px rgba(14, 14, 14, 0.86),
     0 0 4px rgba(234, 234, 234, 0.38);
   cursor: crosshair;
   transition:
@@ -1301,7 +1301,7 @@ onBeforeUnmount(() => {
   width: 3px;
   height: 3px;
   border-radius: 50%;
-  background: #f4f8fc;
+  background: #f8f8f8;
   content: '';
   opacity: 0.82;
   transform: translate(-50%, -50%);
@@ -1339,7 +1339,7 @@ onBeforeUnmount(() => {
   position: absolute;
   z-index: 5;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(34, 35, 39, 0.94);
+  background: rgba(36, 36, 36, 0.94);
 }
 
 .workflow-canvas-toolbar {
@@ -1362,7 +1362,7 @@ onBeforeUnmount(() => {
   height: 32px;
   place-items: center;
   border-radius: 6px;
-  color: #8d919b;
+  color: #939393;
   font-size: 16px;
 }
 
@@ -1371,7 +1371,7 @@ onBeforeUnmount(() => {
 .workflow-history-controls button:hover:not(:disabled),
 .workflow-zoom-controls button:hover {
   background: rgba(255, 255, 255, 0.09);
-  color: #f1f2f4;
+  color: #f2f2f2;
 }
 
 .workflow-tool-button.active {
@@ -1396,7 +1396,7 @@ onBeforeUnmount(() => {
 }
 
 .workflow-add-button {
-  color: #d5d7db;
+  color: #d8d8d8;
   font-size: 22px;
   font-weight: 300;
 }
@@ -1418,13 +1418,13 @@ onBeforeUnmount(() => {
   padding: 5px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
-  background: #242529;
+  background: #262626;
 }
 
 .workflow-more-menu button {
   padding: 7px 8px;
   border-radius: 5px;
-  color: #aaaeb7;
+  color: #b0b0b0;
   font-size: 10px;
   text-align: left;
 }
@@ -1455,7 +1455,7 @@ onBeforeUnmount(() => {
   height: 90px;
   overflow: hidden;
   border-radius: 8px;
-  background: rgba(35, 36, 40, 0.75);
+  background: rgba(37, 37, 37, 0.75);
   cursor: default;
   touch-action: none;
 }
@@ -1539,7 +1539,7 @@ onBeforeUnmount(() => {
 
 .workflow-zoom-value {
   width: 52px !important;
-  color: #b6bac2 !important;
+  color: #bbbbbb !important;
   font-size: 10px !important;
 }
 </style>

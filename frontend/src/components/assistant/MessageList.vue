@@ -639,7 +639,7 @@ const visibleMessages = computed(() =>
 }
 
 .agent-edit-btn.is-primary {
-  color: #10131c;
+  color: #151515;
   background: rgb(186, 186, 186);
 }
 
@@ -661,7 +661,7 @@ const visibleMessages = computed(() =>
   width: min(320px, 80vw);
   padding: 10px 12px;
   border-radius: 12px;
-  background: rgba(18, 20, 30, 0.96);
+  background: rgba(23, 23, 23, 0.96);
   border: 1px solid rgba(160, 160, 160, 0.22);
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.4);
 }

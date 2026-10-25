@@ -244,7 +244,7 @@ onMounted(load)
 <style scoped>
 .billing-page {
   min-height: 100vh;
-  background: var(--page-bg, #0f1014);
+  background: var(--page-bg, #111111);
   color: var(--text-primary, #f4f4f4);
   padding: 0 24px 64px;
 }
@@ -263,7 +263,7 @@ onMounted(load)
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.02);
-  color: var(--text-secondary, #c9cdd6);
+  color: var(--text-secondary, #cfcfcf);
   font-size: 13px;
   cursor: pointer;
   white-space: nowrap;
@@ -291,7 +291,7 @@ onMounted(load)
 .billing-caption {
   margin: 4px 0 0;
   font-size: 12px;
-  color: #6f6f76;
+  color: #717171;
 }
 
 .billing-refresh {
@@ -336,7 +336,7 @@ onMounted(load)
 .billing-state-desc {
   margin: 0 0 18px;
   font-size: 13px;
-  color: #6f6f76;
+  color: #717171;
 }
 
 /* ---- 额度总览 ---- */
@@ -358,7 +358,7 @@ onMounted(load)
 
 .billing-stat-label {
   font-size: 12px;
-  color: #6f6f76;
+  color: #717171;
 }
 
 .billing-stat-value {
@@ -373,7 +373,7 @@ onMounted(load)
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 999px;
   font-size: 11px;
-  color: var(--text-secondary, #c9cdd6);
+  color: var(--text-secondary, #cfcfcf);
   font-weight: 400;
   vertical-align: 1px;
 }
@@ -396,12 +396,12 @@ onMounted(load)
   margin-left: 6px;
   font-size: 13px;
   font-weight: 400;
-  color: #6f6f76;
+  color: #717171;
 }
 
 .billing-stat-meta {
   font-size: 12px;
-  color: #6f6f76;
+  color: #717171;
   line-height: 1.6;
 }
 
@@ -415,7 +415,7 @@ onMounted(load)
 .billing-section-head {
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-secondary, #c9cdd6);
+  color: var(--text-secondary, #cfcfcf);
 }
 
 .billing-soon-badge {
@@ -424,7 +424,7 @@ onMounted(load)
   padding: 1px 8px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 999px;
-  color: #6f6f76;
+  color: #717171;
   font-size: 11px;
   font-weight: 400;
   vertical-align: 1px;
@@ -446,7 +446,7 @@ onMounted(load)
 
 .billing-summary-label {
   font-size: 11px;
-  color: #6f6f76;
+  color: #717171;
 }
 
 .billing-summary-value {
@@ -458,7 +458,7 @@ onMounted(load)
 .billing-summary-meta {
   margin-top: 2px;
   font-size: 11px;
-  color: #6f6f76;
+  color: #717171;
   line-height: 1.5;
 }
 
@@ -468,7 +468,7 @@ onMounted(load)
   padding: 28px;
   text-align: center;
   font-size: 12px;
-  color: #6f6f76;
+  color: #717171;
 }
 
 /* ---- 流水列表 ---- */
@@ -510,7 +510,7 @@ onMounted(load)
 
 .billing-usage-model {
   font-size: 11px;
-  color: #6f6f76;
+  color: #717171;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -525,7 +525,7 @@ onMounted(load)
 
 .billing-usage-credits {
   font-size: 12px;
-  color: var(--text-secondary, #c9cdd6);
+  color: var(--text-secondary, #cfcfcf);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
@@ -536,7 +536,7 @@ onMounted(load)
 
 .billing-usage-time {
   font-size: 11px;
-  color: #6f6f76;
+  color: #717171;
   min-width: 72px;
   text-align: right;
 }
@@ -563,13 +563,13 @@ onMounted(load)
 .billing-setting-desc {
   margin-top: 2px;
   font-size: 11px;
-  color: #6f6f76;
+  color: #717171;
   line-height: 1.5;
 }
 
 .billing-limit-value {
   font-size: 12px;
-  color: #6f6f76;
+  color: #717171;
   flex-shrink: 0;
 }
 
@@ -584,7 +584,7 @@ onMounted(load)
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.02);
-  color: var(--text-secondary, #c9cdd6);
+  color: var(--text-secondary, #cfcfcf);
   font-size: 13px;
   cursor: pointer;
   transition: background 140ms ease;
@@ -597,7 +597,7 @@ onMounted(load)
 .billing-action-button.primary {
   background: #9c9c9c;
   border-color: #9c9c9c;
-  color: #0a0a0c;
+  color: #0b0b0b;
   font-weight: 600;
 }
 

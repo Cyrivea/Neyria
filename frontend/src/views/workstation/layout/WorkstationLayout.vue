@@ -1098,7 +1098,7 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   place-items: center;
   border-radius: 5px;
-  color: #727680 !important;
+  color: #787878 !important;
   font-size: 16px;
   opacity: 0;
   transition:
@@ -1217,7 +1217,7 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.035) !important;
-  color: #9297a1 !important;
+  color: #999999 !important;
   font-size: 16px;
 }
 
