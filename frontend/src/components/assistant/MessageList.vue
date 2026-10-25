@@ -868,7 +868,7 @@ const visibleMessages = computed(() =>
   height: 42px;
   border-radius: 12px;
   object-fit: cover;
-  filter: grayscale(1);
+  /* 内容是生成物/用户附件，不是 UI——不吃单色滤镜（见 CLAUDE.md 单色法修订） */
 }
 
 .message-attachment-icon {

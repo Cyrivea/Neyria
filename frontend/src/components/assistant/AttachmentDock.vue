@@ -144,7 +144,7 @@ const chatStore = useChatStore()
   width: 100%;
   height: 100%;
   object-fit: cover;
-  filter: grayscale(1);
+  /* 附件里的图是内容，不是 UI——不吃单色滤镜（见 CLAUDE.md 单色法修订） */
 }
 
 .attachment-chip-image-caption {
