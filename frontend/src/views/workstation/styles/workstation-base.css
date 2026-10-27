@@ -23,7 +23,7 @@
   width: 100vw;
   height: 100vh;
   overflow: auto;
-  filter: grayscale(1);
+  /* 单色法只管 UI 板块——这写上面的全局 filter 会把内容里 baked 的产物图/视频没演到黑白 */
   background: var(--body-bg);
   color: var(--text-primary);
   font-family: var(--font-ui);

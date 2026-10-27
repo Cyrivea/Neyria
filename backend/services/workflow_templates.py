@@ -33,7 +33,7 @@ _IMAGE_SLOTS: list[tuple[str, SlotDef]] = [
     ("prompt", ("image.generate", "prompt", None, True, "画面描述")),
     ("style", ("image.generate", "style", "电影概念艺术", False, "视觉风格")),
     ("ratio", ("image.generate", "ratio", "16:9", False, "画面比例")),
-    ("palette", ("image.generate", "palette", "黑白", False, "色彩方向")),
+    ("palette", ("image.generate", "palette", "深蓝与紫色", False, "色彩方向")),
 ]
 _VIDEO_SLOTS: list[tuple[str, SlotDef]] = [
     ("prompt", ("video.generate", "prompt", None, True, "镜头与画面描述")),
