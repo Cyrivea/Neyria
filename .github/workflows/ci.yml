@@ -45,8 +45,9 @@ jobs:
       - name: Mypy type check
         run: uv run mypy
 
-      - name: Pytest
-        run: uv run pytest -q
+      # H3 覆盖率闸：fail_under 在 pyproject.toml [tool.coverage.report]，跌破即红
+      - name: Pytest (with coverage gate)
+        run: uv run pytest -q --cov --cov-report=term-missing
 
   frontend:
     name: Frontend (lint + format + test + build)

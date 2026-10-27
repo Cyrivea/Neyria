@@ -45,6 +45,25 @@ testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"  # 原 pytest.ini 内容，已合并到这里
 
+[tool.coverage.run]
+# 覆盖率 gate（H3）：只量业务代码，scripts/tests/压测器具不算分母；
+# 沿用 ruff 的清单而非 --cov=.，防新目录未登记被白白扣点
+source = ["core", "schemas", "services", "agents", "repositories", "routers", "workers", "middleware"]
+omit = ["*/__init__.py"]
+
+[tool.coverage.report]
+# fail_under 是防回退总闸，不是质量目标本身。2026-10-27 实测业务口径 74.1%（routers 层
+# 零覆盖，存量用例全在 service 层，见 unsolved.md 新登项）；闸值取整压到 70 锁定，
+# 补完 routers/判定器测试后按 5 点一档递增
+fail_under = 70
+show_missing = true
+exclude_also = [
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]
+
 [tool.ruff]
 line-length = 110
 target-version = "py312"
