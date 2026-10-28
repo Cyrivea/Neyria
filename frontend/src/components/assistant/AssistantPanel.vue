@@ -66,7 +66,11 @@
       </button>
     </Transition>
 
-    <div class="composer-wrap" :class="{ 'has-attachment-dock': chatStore.hasUploadedAttachments }">
+    <div
+      ref="composerWrapRef"
+      class="composer-wrap"
+      :class="{ 'has-attachment-dock': chatStore.hasUploadedAttachments }"
+    >
       <ChatComposer @send="handleSend" @stop="handleStop" @attach="handleAttach" />
     </div>
   </div>
@@ -75,7 +79,7 @@
 <script setup lang="ts">
 // 助手面板（D1 拆分第 10 步，todo §8.4）：组合消息列表与输入区，
 // 持有滚动容器，并实例化 useAgentChat 完成发送/加载/附件入队流程。
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useChatStore, type AgentMessage } from '@/stores/chat'
 import { useAgentChat } from '@/composables/useAgentChat'
 import MessageList from './MessageList.vue'
@@ -84,6 +88,27 @@ import ChatComposer from './ChatComposer.vue'
 const chatStore = useChatStore()
 
 const assistantBodyRef = ref<HTMLElement | null>(null)
+const composerWrapRef = ref<HTMLElement | null>(null)
+
+// 输入框自适应长高后（UI2 中行内输入可达 40vh）：不再用心算到底部生长全能限，
+// 直接 ResizeObserver 实测 composer 真实高度写进 CSS 变量，消息区 bottom padding
+// 、underlay 、回底按钮全部照这个变量随动（B34）。
+let composerResizeObserver: ResizeObserver | null = null
+
+onMounted(() => {
+  const el = composerWrapRef.value
+  if (!el) return
+  const panel = el.closest('.assistant-panel') as HTMLElement | null
+  composerResizeObserver = new ResizeObserver(() => {
+    panel?.style.setProperty('--composer-h', `${el.offsetHeight + 16}px`)
+  })
+  composerResizeObserver.observe(el)
+})
+
+onBeforeUnmount(() => {
+  composerResizeObserver?.disconnect()
+  composerResizeObserver = null
+})
 
 async function scrollToBottom() {
   await nextTick()
@@ -180,7 +205,8 @@ defineExpose({ loadHistory, scrollToBottom })
 .agent-back-to-bottom {
   position: absolute;
   right: 18px;
-  bottom: 150px; /* 浮在 composer 上方，不挡文字 */
+  /* 浮在 composer 上方，不挡文字；高度跟随 ResizeObserver 实测值（B34） */
+  bottom: calc(var(--composer-h, 230px) + 14px);
   z-index: 30;
   padding: 6px 14px;
   border-radius: 999px;
@@ -303,11 +329,8 @@ defineExpose({ loadHistory, scrollToBottom })
 }
 
 .assistant-body.has-floating-composer {
-  padding-bottom: 234px;
-}
-
-.assistant-body.has-floating-composer.has-attachment-dock {
-  padding-bottom: 332px;
+  /* 别再心算 composer 高度：ResizeObserver 实测值 +默认兑底（B34：输入框随输入变高后挡消息） */
+  padding-bottom: var(--composer-h, 244px);
 }
 
 .assistant-body::-webkit-scrollbar {
@@ -362,14 +385,10 @@ defineExpose({ loadHistory, scrollToBottom })
   left: 0;
   right: 0;
   bottom: 0;
-  height: 248px;
+  height: var(--composer-h, 248px);
   background: var(--column-bg);
   z-index: 2;
   pointer-events: none;
-}
-
-.assistant-composer-underlay.has-attachment-dock {
-  height: 346px;
 }
 
 .assistant-composer-underlay::before {
@@ -462,22 +481,7 @@ defineExpose({ loadHistory, scrollToBottom })
     padding: 16px 16px 12px;
   }
 
-  .assistant-body.has-floating-composer {
-    padding-bottom: 224px;
-  }
-
-  .assistant-body.has-floating-composer.has-attachment-dock {
-    padding-bottom: 320px;
-  }
-
-  .assistant-composer-underlay {
-    height: 238px;
-  }
-
-  .assistant-composer-underlay.has-attachment-dock {
-    height: 336px;
-  }
-
+  /* composer 高度全部交给 ResizeObserver（--composer-h），不再复制静态档位 */
   .composer-wrap.has-attachment-dock {
     padding-top: 102px;
   }
