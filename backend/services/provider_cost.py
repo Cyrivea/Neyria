@@ -34,6 +34,9 @@ _PRICES: dict[str, dict[str, Decimal | str]] = {
     "BAAI/bge-m3": {"kind": "token", "input_yuan_per_1k": Decimal("0"), "output_yuan_per_1k": Decimal("0")},
     "Kwai-Kolors/Kolors": {"kind": "per_call", "yuan": Decimal("0")},
     "Wan-AI/Wan2.2-T2V-A14B": {"kind": "per_call", "yuan": Decimal("2.00")},
+    # 本地 ComfyUI LTX-Video 自建算力：上游云端成本≈0（电费不入账）
+    # 但显式记 0 而非 NULL——「上线过且成本为 0」与「未校准」是两种不同会计语义
+    "LTX-Video-2B-distilled/local": {"kind": "per_call", "yuan": Decimal("0")},
 }
 
 

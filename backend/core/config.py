@@ -56,6 +56,12 @@ IMAGE_MODEL_KUNBOT = os.getenv("IMAGE_MODEL_KUNBOT", "OpenMOSS-Team/MOSS-Image-B
 # 图像走 SiliconFlow Kolors（中文友好；该账号 FLUX 被禁用）
 IMAGE_MODEL = os.getenv("IMAGE_MODEL", "Kwai-Kolors/Kolors").strip()
 VIDEO_MODEL = os.getenv("VIDEO_MODEL", "Wan-AI/Wan2.2-T2V-A14B").strip()
+# 视频 Provider：siliconflow（Wan2.2，云端按次） / comfyui（本地 LTX-Video 自建算力，成本 0）
+VIDEO_PROVIDER = os.getenv("VIDEO_PROVIDER", "siliconflow").strip()
+# ComfyUI 本地服务。在 Windows 宿主上跑需 --listen 0.0.0.0；WSL 内填宿主机 IP（ip route | awk '/default/{print $3}'）。
+COMFYUI_BASE_URL = os.getenv("COMFYUI_BASE_URL", "http://127.0.0.1:8188").strip()
+COMFYUI_TIMEOUT_SECONDS = int(os.getenv("COMFYUI_TIMEOUT_SECONDS", "600"))
+VIDEO_MODEL_COMFYUI = os.getenv("VIDEO_MODEL_COMFYUI", "LTX-Video-2B-distilled/local").strip()
 SILICONFLOW_API_KEY = os.getenv("SILICONFLOW_API_KEY", "").strip()
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3").strip()
 EMBEDDING_API_URL = os.getenv("EMBEDDING_API_URL", "https://api.siliconflow.cn/v1/embeddings").strip()

@@ -197,12 +197,25 @@ def _image_billing_model() -> str:
 
 
 def _video_executor(inputs: BaseModel) -> dict:
-    """真实视频 Provider（SiliconFlow Wan2.2-T2V）。阻塞轮询 1~5 分钟，依赖调用方在线程池里跑。"""
+    """视频 Provider 分流：siliconflow（Wan2.2，云端按次） / comfyui（本地 LTX-Video，自建算力）。
+
+    Provider 选择是平台侧部署决策（VIDEO_PROVIDER），用户不可见。本地 Provider 依赖
+    阻塞轮询 ComfyUI /history，同云端一样要求调用方丢线程池。"""
     from schemas.capability import VideoGenerateInput
-    from services.capabilities.siliconflow_video import generate_video
 
     assert isinstance(inputs, VideoGenerateInput)
+    if config.VIDEO_PROVIDER == "comfyui":
+        from services.capabilities.comfyui_video import generate_video as gen_comfyui
+
+        return gen_comfyui(inputs)
+    from services.capabilities.siliconflow_video import generate_video
+
     return generate_video(inputs)
+
+
+def _video_billing_model() -> str:
+    """跟随 Provider 的真实型号（账本里该写哪个名字由部署决定，不是代码写死）。"""
+    return config.VIDEO_MODEL_COMFYUI if config.VIDEO_PROVIDER == "comfyui" else config.VIDEO_MODEL
 
 
 def _register() -> dict[str, CapabilityEntry]:
@@ -230,7 +243,7 @@ def _register() -> dict[str, CapabilityEntry]:
             display_name="视频",
             input_model=VideoGenerateInput,
             executor=_video_executor,
-            billing_model=lambda: config.VIDEO_MODEL,
+            billing_model=_video_billing_model,
             billing_estimate=lambda: Decimal(config.BILLING_VIDEO_RESERVE_CREDITS),
         ),
     }
