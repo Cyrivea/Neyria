@@ -169,6 +169,46 @@ def test_image_anim_requires_source_asset():
     assert params_list[0]["source_asset"] == "/api/assets/abc.jpg"
 
 
+def test_run_capability_result_carries_asset_id(monkeypatch):
+    """产资资产能力的返回值必须带 asset_id（下游 I2V 引用在引擎层只认它）。"""
+    import asyncio
+    import uuid
+
+    from services.capabilities import CapabilityContext, run_capability
+    from services.capabilities.runtime import CapabilityEntry
+
+    fake_executor = lambda inputs: {  # noqa: E731  测试桩用 lambda 最直白
+        "content": "![图](/api/assets/x.png)",
+        "asset": {"asset_id": "asset-abc", "filename": "x.png"},
+    }
+    entry = CapabilityEntry(
+        capability_id="image.generate",
+        display_name="图",
+        input_model=__import__("schemas.capability", fromlist=["ImageGenerateInput"]).ImageGenerateInput,
+        executor=fake_executor,
+        billing_model=lambda: "m",
+        billing_estimate=lambda: __import__("decimal").Decimal("0"),
+    )
+    monkeypatch.setitem(rt.CAPABILITY_REGISTRY, "image.generate", entry)  # 自动还原，不泄漏
+    monkeypatch.setattr(rt.config, "BILLING_MODE", "off")
+    # skip async asset writer side-effect
+    async def _noop(*a, **kw):
+        return None
+    monkeypatch.setattr(rt, "_write_asset", _noop)
+    monkeypatch.setattr(rt, "_record_usage", _noop)
+
+    res = asyncio.run(
+        run_capability(
+            "image.generate",
+            {"prompt": "x"},
+            context=CapabilityContext(user_id=1, project_id=None, source="standalone"),
+            idempotency_key="k-" + uuid.uuid4().hex,
+        )
+    )
+    assert res.status == "succeeded"
+    assert res.result["asset_id"] == "asset-abc"
+
+
 # ---------- 适配器 I2V 打参（mock 快门） ----------
 
 def test_i2v_workflow_patches(monkeypatch, tmp_path):

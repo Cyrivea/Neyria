@@ -557,8 +557,13 @@ async def run_capability(
             "duration_ms": round(duration_ms, 1),
         },
     )
+    # asset_id 随 result 一起返回：Workflow 引擎的候选记录要拿它做下游 I2V 引用，
+    # 丢掉则只能靠 content Markdown 里的路径反推（老候选回填只是兑底，不是常态）
+    result_payload: dict[str, str] = {"format": "markdown", "content": content}
+    if asset and isinstance(asset.get("asset_id"), str):
+        result_payload["asset_id"] = asset["asset_id"]
     return CapabilityResult(
         capability_id=capability_id,
         status="succeeded",
-        result={"format": "markdown", "content": content},
+        result=result_payload,
     )

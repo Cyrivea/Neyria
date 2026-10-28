@@ -104,6 +104,26 @@ async def execute_tool(func_name: str, func_args_raw: str) -> ToolOutcome:
         )
         return ToolOutcome(result=f"操作被平台规则拒绝：{exc.detail}", ok=False, error_kind="business_denied")
     except Exception as exc:
+        # pydantic ValidationError（工具参数的 schema 边）：该型错误模型是可以纠正的——
+        # 不把具体报错喂给它只会摊手；装进「模型可纠正」错误回应。
+        from pydantic import ValidationError
+
+        if isinstance(exc, ValidationError):
+            logger.warning(
+                "工具参数格式不符可重试: %s: %s",
+                func_name,
+                str(exc)[:500],
+                extra={"evt": "tool_params_invalid", "tool": func_name},
+            )
+            detail = exc.errors()[0]
+            return ToolOutcome(
+                result=(
+                    f"参数格式不合法：字段 {'.'.join(str(p) for p in detail.get('loc', []))} "
+                    f"{detail.get('msg', '')}。请修正后重试本工具。"
+                ),
+                ok=False,
+                error_kind="params_invalid",
+            )
         logger.exception(
             "工具执行失败: %s",
             type(exc).__name__,

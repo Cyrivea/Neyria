@@ -791,8 +791,11 @@ def _append_candidate(node: dict[str, Any], result: Any) -> None:
     产物是资产时（图像/视频）同步把 asset_id 考进去——下游图生视频链路要用。"""
     content = result.result.get("content") if isinstance(result.result, dict) else None
     asset_id = None
-    if isinstance(result.result, dict) and isinstance(result.result.get("asset"), dict):
-        asset_id = result.result["asset"].get("asset_id")
+    if isinstance(result.result, dict):
+        asset_id = result.result.get("asset_id")
+        if asset_id is None and isinstance(result.result.get("asset"), dict):
+            # 兼容未升级适配器的返回形态
+            asset_id = result.result["asset"].get("asset_id")
     candidates = node.setdefault("candidates", [])
     candidates.append(
         {

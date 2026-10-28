@@ -35,13 +35,16 @@ from services.workflow_service import (
 from services.workflow_service import (
     update_chain_params as _update_chain_params_service,
 )
+from services.workflow_templates import WORKFLOW_TEMPLATES
 
 # 模块级标记：工具注册器据此把这两个工具归入 Capability 路由（ainvoke 异步执行）。
 CAPABILITY_ID = "workflow.control"
 
-TemplateId = Literal[
-    "lyrics_only", "image_only", "video_only", "lyrics_cover", "lyrics_video", "full_mv"
-]
+# 模板清单的唯一事实源是 services/workflow_templates.WORKFLOW_TEMPLATES——
+# 这里动态取它的键生成 Literal，杜绝新增模板时忘同步工具 schema
+# （2026-10-28 image_anim/cover_mv 已吃过一次这个亏：用户问“把曲绘动起来”，
+#  助手选对模板但被工具面拒了三个来回）
+TemplateId = Literal[*WORKFLOW_TEMPLATES.keys()]  # type: ignore[valid-type]
 
 
 class ChainSpec(BaseModel):
