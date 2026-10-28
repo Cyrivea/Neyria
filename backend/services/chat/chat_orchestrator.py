@@ -397,11 +397,13 @@ async def _orchestrate(
     regenerate: bool = False,
     edit_from_id: int | None = None,
 ) -> AsyncGenerator[str, None]:
-    if client is None:
-        raise HTTPException(status_code=503, detail="未配置 API_KEY，聊天功能暂不可用")
-
+    # 输入语义的合法性 > 服务端配置状态：互斥参数的错误永远是调用方的 400，
+    # 跟服务器有没有接好模型无关（无密钥环境下该测试也能独立跑通，CI 实证 2026-10-28）。
     if regenerate and edit_from_id is not None:
         raise HTTPException(status_code=400, detail="regenerate 与 edit_from_id 互斥，只能传一个")
+
+    if client is None:
+        raise HTTPException(status_code=503, detail="未配置 API_KEY，聊天功能暂不可用")
 
     # 重生成模式（UI1）：先在事务语义下截掉数据库尾轮（user+assistant），
     # 之后 build_chat_context 重建的上下文就不含旧答案，本次 message 当作新问重走全流程。
