@@ -40,12 +40,13 @@ Neyria 是一个**平台托管模型的 AI 创作工作台**：注册用户开�
 
 | 维度 | 现状 |
 | --- | --- |
-| 真实生产链 | `lyrics.generate → image.generate` 真机 E2E 出图：SiliconFlow Kolors 生成 1344×768 PNG（含预签名 URL 转存本地），用量入 usage_events 账本；`video.generate`（Wan2.2-T2V）真机出片 3m29s，mp4 转存可流式回放 |
-| 后端测试 | pytest 250 用例全绿（无密钥环境 230 passed + 1 skipped） |
-| 前端测试 | Vitest 46 用例 |
-| 意图评测 | 30/30（画布 vs 对话分流） |
-| 防注入评测 | 20/20（规则 + 语义双层守卫） |
-| 计费并发 | credit ledger 10 线程竞测 0 透支 0 重扣 |
+| 真实生产链 | 歌词→曲绘→图生视频（I2V）全链真机 E2E：云端 LLM 写词（Kunbot/智谱双路由热插拔）→ MOSS/Kolors 图像双 Provider → **本地 ComfyUI（LTX-Video 2B）图生视频 21s 出片**，云端/本地算力在同一 Capability Runtime 与账本里，本地产物成本显式记 0；签名缓存保证参数未变零计费零调用 |
+| 后端测试 | pytest 421 用例全绿 + 覆盖率 gate（fail_under=70，CI 强制） |
+| 前端测试 | Vitest 81 用例 |
+| 意图评测 | 30/33 基线（搭链/运行/状态追问场景） |
+| 防注入评测 | 20/20（规则 + 语义双层守卫，embedding 欠费时规则层自动降级） |
+| 计费并发 | credit ledger 10 线程竞测 0 透支 0 重扣 + 双桶溢扣 + 预占超时 sweep 回收 |
+| 工作流助手 | 模板库 8 条（3 原子 + 3 复合 + 2 图生视频）；助手五动词（增/减/改/**接**/跑），「在链尾加环节」有独立动作不再靠幻觉 |
 | CI | GitHub Actions 双 job：后端 ruff + mypy + pytest（Redis service 容器）；前端 ESLint + Prettier + Vitest + build |
 
 ## 它怎么运作
@@ -56,7 +57,7 @@ Neyria 是一个**平台托管模型的 AI 创作工作台**：注册用户开�
 </p>
 
 - **ReAct 编排器**（`backend/services/chat/`）：SSE 流式输出；按 index 聚合多 tool_calls，结果回填后模型可继续要工具，最多 5 轮；
-- **Capability Runtime**（`backend/services/capabilities/`）：生产工具的唯一实现处——Chat Assistant、用户直接使用、Workflow 节点共用同一运行时；歌词走智谱 GLM、图像走 SiliconFlow Kolors、视频走 Wan2.2-T2V、检索 embedding 走 BGE-M3；
+- **Capability Runtime**（`backend/services/capabilities/`）：生产工具的唯一实现处——Chat Assistant、用户直接使用、Workflow 节点共用同一运行时；歌词走智谱 GLM/Kunbot 网关（`LLM_PROVIDER` 热插拔）、图像走 SiliconFlow Kolors/Kunbot MOSS（`IMAGE_PROVIDER`）、视频走 SiliconFlow Wan2.2 **或本地 ComfyUI LTX-Video**（`VIDEO_PROVIDER`，含图生视频 I2V：画布连线/助手链尾续接自动识别）、检索 embedding 走 BGE-M3；
 - **注入防护**（`backend/core/injection_guard.py`）：规则层先行、语义层过 embedding 前先过门控；RAG 上下文 Spotlighting 打标，间接注入触发工具冻结；
 - **任务队列**（`backend/services/job_service.py`）：持久化 jobs/documents，Worker 原子领取 + 租约恢复，失败重试；
 - **计费账本**（`backend/services/billing_service.py`）：usage_events 记账 + 价格版本 + reserve/settle/release 预占结算 + CHECK 非负约束 + 幂等充值。
@@ -102,14 +103,14 @@ pnpm build               # vue-tsc + vite
 ## 产品边界
 
 - 普通用户不接触 API Key、Base URL、系统提示词或上游模型名；
-- 音频 Provider 暂未接入；视频（Wan2.2-T2V）已接入；
+- 音频 Provider 暂未接入；视频 已支持文生视频与图生视频（I2V，本地 ComfyUI 或云端 Wan2.2）；
 - 不同时接入多个聊天模型供应商；BYOK 不做。
 
 ## 路线图
 
 ```text
-✅ 平台托管模型和 Provider → ✅ 生产工具 Block（歌词/图像）→ 🔨 订阅、额度和用量计量
-→ ✅ 聊天助手调用 Block → 🔨 用户与 AI 共同编辑 Workflow → 🔨 生成结果保存为项目资产
+✅ 平台托管模型和 Provider → ✅ 生产工具 Block（歌词/图像/视频）→ ✅ 订阅账本与模拟计费（预占-结算-幂等）
+→ ✅ 聊天助手五动词搭链运行 → ✅ AI 与用户共同编辑 Workflow（签名缓存零重跑计费）→ ✅ 生成结果保存为项目资产（档案馆保留/诚实删除）
 ```
 
 > 架构规划见 `architecture.md`（仓库外内部文档）；当前完成度与遗留问题清单见项目内 `unsolved.md`。
