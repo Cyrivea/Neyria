@@ -508,6 +508,18 @@ def add_workflow_chains(
             }
         )
 
+        # 模板防墙（评测+真机都曾踩过）：source_asset 到资产引用（asset-xxx 或 /api/assets/xxx.jpg），
+        # 绝不接受节点 id。「在链尾加环节」是另一个动词（extend_workflow_chain），
+        # 提前代模型拒掉并出轨纠正话术，防止参数塞错形态后默默走到执行期才报多绕一圈。
+        for _cap, params in zip(template.blocks, params_list or [], strict=True):
+            src = (params or {}).get("source_asset")
+            if isinstance(src, str) and src.startswith("workflow-node-"):
+                raise AppError(
+                    "source_asset 是资产引用（asset-xxx 或 /api/assets/xxx.jpg），不是节点 id。"
+                    "如果你的意图是「在现有链尾加一个环节」，应该调用 extend_workflow_chain，"
+                    "而不是新建一条链并在这里填节点 id。",
+                    status_code=422,
+                )
     current = get_draft(user_id, project_id)
     if not confirm_duplicates:
         existing = {
@@ -606,6 +618,108 @@ def add_workflow_chains(
         "draft": saved["draft"],
         "chains": holder["created"],
         "merged_note": merged_note,
+    }
+
+
+def extend_workflow_chain(
+    user_id: int,
+    project_id: int | None,
+    chain_no: int,
+    capability_or_type: str,
+    params: dict[str, Any],
+) -> dict[str, Any]:
+    """在现有链尾追加一个 Block（第 5 个动词，B33）。
+
+    与新建链的边界：用户在已有链上点了名为「续/加/接」的动作。链仍然是直线，
+    上下游资产靠真连线传递（例：链尾是图像节点，追加视频节点 = 图生视频自动
+    接上，不需要再传 source_asset）。
+    追加后链登记 spec_hash 作废（不再完全是模板实例）。
+    """
+    _check_project_owner(user_id, project_id)
+    capability_id = _as_capability_id(capability_or_type)
+    entry = CAPABILITY_REGISTRY.get(capability_id)
+    if entry is None:
+        raise AppError(f"未知的生产能力: {capability_or_type}", status_code=422)
+    try:
+        validated = entry.input_model.model_validate(params).model_dump()
+    except ValidationError as exc:
+        first = exc.errors()[0]
+        raise AppError(
+            f"追加 Block 参数不合法：{first.get('loc')} {first.get('msg')}",
+            status_code=422,
+        ) from exc
+
+    holder: dict[str, Any] = {}
+
+    def mutate(draft: dict[str, Any]) -> None:
+        _ensure_canvas_read(user_id, project_id, draft)
+        registry = _chain_registry(draft)
+        chain = next((c for c in registry if c.get("chain_no") == chain_no), None)
+        if chain is None:
+            raise AppError(f"找不到链{chain_no}（可能已被删除），先用 read_workflow_state 看画布", status_code=404)
+        node_ids = chain.get("node_ids") or []
+        if not node_ids:
+            raise AppError(f"链{chain_no} 是空链，没有可接的尾部节点", status_code=422)
+        tail_id = node_ids[-1]
+        tail_node = next(
+            (n for n in draft.get("nodes", []) if str(n.get("id")) == tail_id), None
+        )
+        if tail_node is None:
+            raise AppError(f"链{chain_no} 的链尾节点已不在画布上", status_code=422)
+        # 只允许直线续：链尾出边必须只有一条且指向输出端点（或没出边）
+        tail_out_edges = [
+            e for e in draft.get("edges", []) if str(e.get("source")) == tail_id
+        ]
+        if any(str(e.get("target")) != OUTPUT_ID for e in tail_out_edges):
+            raise AppError(
+                f"链{chain_no} 的链尾 {tail_node.get('name')} 已经往外接过了非输出连线，"
+                "平台和目前只支持直线续尾；分叉请另起新链",
+                status_code=422,
+            )
+        meta = CAPABILITY_META[capability_id]
+        new_node = {
+            "id": f"workflow-node-{meta['type']}-{uuid.uuid4().hex[:10]}",
+            "kind": "tool",
+            "toolId": f"assistant-{meta['type']}-{uuid.uuid4().hex[:10]}",
+            "type": meta["type"],
+            "capability_id": capability_id,
+            "name": meta["name"],
+            "badge": meta["badge"],
+            "description": meta["description"],
+            "color": meta["color"],
+            "chain_id": chain.get("chain_id"),
+            "chain_no": chain.get("chain_no"),
+            "x": float(tail_node.get("x") or 0) + 320,
+            "y": tail_node.get("y"),
+            "params": validated,
+            "runStatus": "idle",
+            "result": None,
+            "candidates": [],
+        }
+        draft.setdefault("nodes", []).append(new_node)
+        # 重接：链尾→输出 改成 链尾→新节点→输出
+        draft["edges"] = [
+            e
+            for e in draft.get("edges", [])
+            if not (str(e.get("source")) == tail_id and str(e.get("target")) == OUTPUT_ID)
+        ]
+        _ensure_edge(draft, tail_id, new_node["id"])
+        _ensure_edge(draft, new_node["id"], OUTPUT_ID)
+        node_ids.append(new_node["id"])
+        chain["spec_hash"] = None  # 不再是模板纯实例
+        holder["created"] = {
+            "chain_no": chain.get("chain_no"),
+            "chain_id": chain.get("chain_id"),
+            "appended": {"node_id": new_node["id"], "capability": capability_id, "name": meta["name"]},
+            "label": chain.get("label"),
+        }
+
+    saved = _mutate_draft_with_cas(user_id, project_id, mutate)
+    return {
+        "id": saved["id"],
+        "revision": saved["revision"],
+        "draft": saved["draft"],
+        "extension": holder["created"],
     }
 
 
@@ -895,13 +1009,28 @@ def _resolve_params(
     )
     # 图生视频（I2V）自动识别：视频节点的上游节点产出了图像资产、且 params 没显式给
     # source_asset → 自动带上。用户手动画布拉条接上下游也是这条路（不取人配置面板）。
+    # 由 pydantic 模型 dump 出的空 source_asset=null 也视为没填——否则自动 I2V 永远不触发
     auto_i2v = (
         capability_id == "video.generate"
         and upstream_asset_id
-        and "source_asset" not in params
+        and not params.get("source_asset")
         and upstream_node is not None
         and str(upstream_node.get("capability_id") or "") == "image.generate"
     )
+
+    # 确定性救场（B33）：模型把节点 id（workflow-node-*）塞进 source_asset 的情况，
+    # 从该节点候选里取选中/单一成功候选的资产引用。资产缺失 → 按同一铁律拒。
+    raw_source = params.get("source_asset")
+    if isinstance(raw_source, str) and raw_source.startswith("workflow-node-"):
+        ref_node = next(
+            (item for item in draft.get("nodes", []) if str(item.get("id")) == raw_source),
+            None,
+        )
+        node_asset = _upstream_asset(ref_node) if ref_node is not None else None
+        if node_asset is None:
+            return params, "指定的来源节点还没有可用产出，请先让它运行成功"
+        params = dict(params)
+        params["source_asset"] = node_asset
 
     resolved: dict[str, Any] = {}
     for key, value in params.items():
@@ -919,7 +1048,7 @@ def _resolve_params(
         resolved["source_asset"] = upstream_asset_id
     elif capability_id == "video.generate" and upstream_node is not None and str(
         upstream_node.get("capability_id") or ""
-    ) == "image.generate" and "source_asset" not in params:
+    ) == "image.generate" and not params.get("source_asset"):
         # 用户已把视频节点接在图像节点后面，却拿不到唯一可用资产 = 上游多版本未手选；
         # 绝不能静默退回文生视频重新随机生成一张「另一幅画」、然后报告成「图生视频」——
         # 与文本引用同一铁律：拒绝，不肓跑

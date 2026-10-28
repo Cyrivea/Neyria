@@ -229,7 +229,7 @@ def _video_executor(inputs: BaseModel) -> dict:
 
     assert isinstance(inputs, VideoGenerateInput)
     source_row = None
-    if inputs.source_asset:
+    if getattr(inputs, "source_asset", None):
         source_row = _normalize_source_asset(inputs.source_asset, current_capability_context().user_id)
         if source_row is None:
             raise RuntimeError("来源图片不存在、不属于你、或不是图像资产")

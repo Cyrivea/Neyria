@@ -265,3 +265,96 @@ def test_i2v_workflow_patches(monkeypatch, tmp_path):
     assert wf["15"]["inputs"]["length"] == 121
     assert "动一下" not in out["content"]  # 输出是 mp4 链接
     assert out["usage"]["model"] == cv.config.VIDEO_MODEL_COMFYUI
+
+
+# ---------- 链尾续接（B33 第五动词）与节点 id 兜底 ----------
+
+def _make_chain_draft():
+    return {
+        "nodes": [
+            {"id": "workflow-input", "kind": "endpoint"},
+            {"id": "lyr1", "capability_id": "lyrics.generate", "x": 300, "y": 280, "params": {"theme": "x"}},
+            {"id": "img1", "capability_id": "image.generate", "x": 620, "y": 280, "params": {"prompt": "y"},
+             "candidates": [{"id": "c1", "status": "succeeded", "content": "![图](/api/assets/src.png)", "asset_id": "asset-src1"}]},
+            {"id": "workflow-output", "kind": "endpoint"},
+        ],
+        "edges": [
+            {"source": "workflow-input", "target": "lyr1"},
+            {"source": "lyr1", "target": "img1"},
+            {"source": "img1", "target": "workflow-output"},
+        ],
+        "chains": [
+            {"chain_no": 2, "chain_id": "ch-2", "label": "词+图", "template_id": "lyrics_cover",
+             "spec_hash": "h", "node_ids": ["lyr1", "img1"], "source": "assistant"},
+        ],
+    }
+
+
+def test_extend_appends_and_rewires_edges(monkeypatch):
+    from services.workflow_service import extend_workflow_chain
+
+    monkeypatch.setattr("services.workflow_service._check_project_owner", lambda *a: None)
+    monkeypatch.setattr("services.workflow_service._ensure_canvas_read", lambda *a: None)
+    # 用假 draft 走 mutate 分支（CAS 层被桩掉）
+    monkeypatch.setattr("services.workflow_service._mutate_draft_with_cas",
+                        lambda u, p, fn: (fn(_d := _make_chain_draft()) or None) or {"id": 1, "revision": 2, "draft": _d})
+    out = extend_workflow_chain(1, None, chain_no=2, capability_or_type="video",
+                                params={"prompt": "镜头缓慢推近", "duration": "5 秒"})
+    draft = out["draft"]
+    ext = out["extension"]
+    assert ext["appended"]["capability"] == "video.generate"
+    new_id = ext["appended"]["node_id"]
+    edge_set = {(e["source"], e["target"]) for e in draft["edges"]}
+    assert ("img1", "workflow-output") not in edge_set
+    assert ("img1", new_id) in edge_set
+    assert (new_id, "workflow-output") in edge_set
+    chain = draft["chains"][0]
+    assert new_id in chain["node_ids"] and chain["spec_hash"] is None
+
+
+def test_extend_unknown_chain_or_dirty_tail(monkeypatch):
+    from core.exceptions import AppError
+    from services.workflow_service import extend_workflow_chain
+
+    monkeypatch.setattr("services.workflow_service._check_project_owner", lambda *a: None)
+    monkeypatch.setattr("services.workflow_service._ensure_canvas_read", lambda *a: None)
+    monkeypatch.setattr("services.workflow_service._mutate_draft_with_cas",
+                        lambda u, p, fn: (fn(_d := _make_chain_draft()) or None) or {"id": 1, "revision": 2, "draft": _d})
+    with pytest.raises(AppError, match="找不到链"):
+        extend_workflow_chain(1, None, chain_no=99, capability_or_type="video", params={"prompt": "x"})
+
+
+def test_node_id_source_asset_resolved_by_engine(monkeypatch):
+    draft = _make_chain_draft()
+    draft["nodes"].append({
+        "id": "vid-new", "capability_id": "video.generate",
+        "params": {"prompt": "推近", "style": "电影写实", "ratio": "16:9", "duration": "5 秒",
+                   "source_asset": "img1"},  # 模型塞了节点 id（原始形态可能是 workflow-node-img1）
+        "candidates": [],
+    })
+    draft["edges"].extend([
+        {"source": "workflow-input", "target": "vid-new"},
+        {"source": "vid-new", "target": "workflow-output"},
+    ])
+    vid = draft["nodes"][-1]
+    vid["params"]["source_asset"] = "workflow-node-img1"  # 模拟模型误传
+    # img1 在本 draft 里不带 workflow-node- 前缀，引擎按 id 全文匹配；先把 id 补成带前缀场景
+    draft["nodes"][2]["id"] = "workflow-node-img1"
+    draft["edges"] = [{"source": e["source"] if e["source"] != "img1" else "workflow-node-img1",
+                       "target": e["target"] if e["target"] != "img1" else "workflow-node-img1"} for e in draft["edges"]]
+    resolved, err = _resolve_params(vid, draft, {})
+    assert err is None
+    assert resolved["source_asset"] == "asset-src1"  # 引擎兜底把节点 id 换算成真实资产
+
+
+def test_node_id_source_asset_without_output_fails():
+    draft = _make_chain_draft()
+    draft["nodes"][2]["candidates"] = []
+    draft["nodes"].append({
+        "id": "vid-new", "capability_id": "video.generate",
+        "params": {"prompt": "推近", "style": "电影写实", "ratio": "16:9", "duration": "5 秒",
+                   "source_asset": "workflow-node-img1"},
+        "candidates": [],
+    })
+    _resolved, err = _resolve_params(draft["nodes"][-1], draft, {})
+    assert err == "指定的来源节点还没有可用产出，请先让它运行成功"

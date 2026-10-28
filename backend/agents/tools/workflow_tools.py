@@ -30,6 +30,9 @@ from services.workflow_service import (
     submit_workflow_run,
 )
 from services.workflow_service import (
+    extend_workflow_chain as _extend_chain_service,
+)
+from services.workflow_service import (
     remove_workflow_chain as _remove_chain_service,
 )
 from services.workflow_service import (
@@ -183,6 +186,49 @@ def update_chain_params(
                 "要看到新结果请调用 run_current_workflow。"
             ),
             "_ui_events": [{"type": "workflow_snapshot", "snapshot": updated["draft"]}],
+        }
+    )
+
+
+@tool
+def extend_workflow_chain(
+    chain_no: int,
+    block: Literal["lyrics", "image", "video"],
+    slots: dict[str, str],
+) -> str:
+    """在一条现有链的尾部追加一个生产环节（B33 第 5 个动词）。
+
+    典型场景："在链2的曲绘后面加个视频节点，把这张图动起来"。
+    与 add_workflow_chains 的区别：这个动词**不动存量参数、不新建链**——
+    画布上这条链会真的变长一格，上游的产物（含图像资产）通过真实连线送到新环节。
+    加了之后如需新结果，调用 run_current_workflow——上游没变的节点会自动复用。
+
+    Args:
+        chain_no: 要在哪条链的尾部加（用户口中的“第几条链”）。
+        block: 要加的环节：lyrics=词、image=图、video=视频。
+        slots: 新环节的参数（如 {"prompt": "镜头缓慢推近", "duration": "5 秒"}）。
+    """
+    execution = current_capability_context()
+    out = _extend_chain_service(
+        execution.user_id,
+        execution.project_id,
+        chain_no,
+        block,
+        dict(slots),
+    )
+    ext = out["extension"]
+    return _json(
+        {
+            "status": "extended",
+            "revision": out["revision"],
+            "chain_no": ext["chain_no"],
+            "label": ext["label"],
+            "appended": ext["appended"],
+            "message": (
+                f"已在链{ext['chain_no']}「{ext['label']}」尾部加了「{ext['appended']['name']}」环节。"
+                "上游产物会自动送入新环节；要看到结果请调用 run_current_workflow。"
+            ),
+            "_ui_events": [{"type": "workflow_snapshot", "snapshot": out["draft"]}],
         }
     )
 
