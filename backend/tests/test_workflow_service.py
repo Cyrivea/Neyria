@@ -163,6 +163,7 @@ def _fake_success(text: str = "歌词正文"):
 
 
 def test_list_templates_exposes_six_templates_with_slots(memory_repo):
+    """2026-10-28 库库扩容为 8：原子 3 + 依赖复合 3 + I2V 2（image_anim / cover_mv）。"""
     templates = {t["template_id"]: t for t in list_templates()}
 
     assert set(templates) == {
@@ -172,6 +173,8 @@ def test_list_templates_exposes_six_templates_with_slots(memory_repo):
         "lyrics_cover",
         "lyrics_video",
         "full_mv",
+        "image_anim",
+        "cover_mv",
     }
     assert templates["lyrics_cover"]["chain"] == ["lyrics", "image"]
     assert templates["full_mv"]["chain"] == ["lyrics", "image", "video"]

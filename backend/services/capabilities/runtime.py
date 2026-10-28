@@ -196,18 +196,49 @@ def _image_billing_model() -> str:
     return config.IMAGE_MODEL_KUNBOT if config.IMAGE_PROVIDER == "kunbot" else config.IMAGE_MODEL
 
 
+def _normalize_source_asset(ref: str, user_id: int) -> dict | None:
+    """把 source_asset 入参归一为当前用户的图像资产行；两种接受形态：
+    - 资产 ID（asset-xxxxxxxx）
+    - 资产 URL（/api/assets/<file> 或纯文件名）——助手能在对话历史里见到的唯一形态
+
+    属主校验必须在这里做，越权/未到图像资产一律按 None 拒绝（不泄露存在性）。
+    """
+    from repositories import asset_repo
+
+    ref = ref.strip()
+    if ref.startswith("/api/assets/"):
+        row = asset_repo.get_owned_by_filename(ref.rsplit("/", 1)[-1], user_id)
+    elif "." in ref and not ref.startswith("asset-"):
+        row = asset_repo.get_owned_by_filename(ref, user_id)
+    else:
+        row = asset_repo.get_owned(ref, user_id)
+    if row is None or row.get("kind") != "image":
+        return None
+    return row
+
+
 def _video_executor(inputs: BaseModel) -> dict:
     """视频 Provider 分流：siliconflow（Wan2.2，云端按次） / comfyui（本地 LTX-Video，自建算力）。
 
     Provider 选择是平台侧部署决策（VIDEO_PROVIDER），用户不可见。本地 Provider 依赖
-    阻塞轮询 ComfyUI /history，同云端一样要求调用方丢线程池。"""
+    阻塞轮询 ComfyUI /history，同云端一样要求调用方丢线程池。
+
+    I2V 语义：inputs.source_asset 非空 → 图生视频。
+    只有 comfyui Provider 装了 I2V 模板；siliconflow 路径如实拒绝，不伪造。"""
     from schemas.capability import VideoGenerateInput
 
     assert isinstance(inputs, VideoGenerateInput)
+    source_row = None
+    if inputs.source_asset:
+        source_row = _normalize_source_asset(inputs.source_asset, current_capability_context().user_id)
+        if source_row is None:
+            raise RuntimeError("来源图片不存在、不属于你、或不是图像资产")
     if config.VIDEO_PROVIDER == "comfyui":
         from services.capabilities.comfyui_video import generate_video as gen_comfyui
 
-        return gen_comfyui(inputs)
+        return gen_comfyui(inputs, source_row)
+    if source_row is not None:
+        raise RuntimeError(f"当前视频 Provider（{config.VIDEO_PROVIDER}）暂不支持图生视频")
     from services.capabilities.siliconflow_video import generate_video
 
     return generate_video(inputs)
@@ -434,7 +465,13 @@ async def run_capability(
 
     started_at = time.perf_counter()
     try:
-        output = await asyncio.to_thread(entry.executor, validated)
+        # 能力执行需要用户上下文（I2V 来源图像的属主校验等）：统一在进入线程池前
+        # 显式包一层 context manager，standalone/workflow/assistant 三入口不再依赖调用方记得传。
+        def _call_with_context():
+            with use_capability_context(context):
+                return entry.executor(validated)
+
+        output = await asyncio.to_thread(_call_with_context)
     except ModelNotConfiguredError:
         await _release_reservation(reservation_ref, "模型尚未配置")
         await _record_usage(

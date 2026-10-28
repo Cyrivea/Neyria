@@ -787,14 +787,19 @@ def _failure_result(capability_id: str, message: str):
 
 
 def _append_candidate(node: dict[str, Any], result: Any) -> None:
-    """运行成功/失败都留一条候选记录；单一成功默认成下游的输入。"""
+    """运行成功/失败都留一条候选记录；单一成功默认成下游的输入。
+    产物是资产时（图像/视频）同步把 asset_id 考进去——下游图生视频链路要用。"""
     content = result.result.get("content") if isinstance(result.result, dict) else None
+    asset_id = None
+    if isinstance(result.result, dict) and isinstance(result.result.get("asset"), dict):
+        asset_id = result.result["asset"].get("asset_id")
     candidates = node.setdefault("candidates", [])
     candidates.append(
         {
             "id": f"cand-{uuid.uuid4().hex[:8]}",
             "status": result.status,
             "content": content,
+            "asset_id": asset_id,
             "error": result.error,
             "created_at": _now(),
         }
@@ -805,11 +810,52 @@ def _append_candidate(node: dict[str, Any], result: Any) -> None:
             node["selectedCandidateId"] = succeeded[0]["id"]
 
 
+def _upstream_asset(upstream_node: dict[str, Any]) -> str | None:
+    """与 _upstream_content 同规则的资产版：抽取上游候选人要送去下游的 asset_id。
+    （同一套-selectedCandidateId / 单一成功直接取 / 多版本未定返回 None 的铁律。）"""
+    candidates = upstream_node.get("candidates")
+    if not isinstance(candidates, list):
+        return None
+    # 资产引用值优先拿 asset_id；老格式候选（2026-10-28 双 Worker 并发被旧代码跑动事故实证）
+    # 没有 asset_id 列 → 从 content 的 /api/assets/<file> 链接回填为路径形态，
+    # 属主校验在能力执行人口（_normalize_source_asset）统一拦截，这里不查表。
+    def _asset_of(cand: dict[str, Any]) -> str | None:
+        if isinstance(cand.get("asset_id"), str):
+            return cand["asset_id"]
+        content = cand.get("content")
+        if isinstance(content, str):
+            match = re.search(r"/api/assets/([0-9a-f-]+\.[a-z0-9]+)", content)
+            if match:
+                return f"/api/assets/{match.group(1)}"
+        return None
+
+    selected_id = upstream_node.get("selectedCandidateId")
+    if selected_id:
+        for cand in candidates:
+            if cand.get("id") == selected_id and cand.get("status") == "succeeded":
+                return _asset_of(cand)
+        return None
+    succeeded = [
+        cand
+        for cand in candidates
+        if cand.get("status") == "succeeded" and _asset_of(cand)
+    ]
+    if len(succeeded) == 1:
+        return _asset_of(succeeded[0])
+    return None
+
+
+# 显式引用上游资产的记号；视频节点在模板「图生视频」场景使用
+UPSTREAM_ASSET_PATTERN = "${upstream.result.asset}"
+UPSTREAM_ASSET_REF_RE = re.compile(r"\$\{[^}]*?\.result\.asset\}")
+
+
 def _resolve_params(
     node: dict[str, Any], draft: dict[str, Any], results: dict[str, Any]
 ) -> tuple[dict[str, Any], str | None]:
-    """替换 ``${upstream.result.content}``；多版本上游未选择时拒绝执行而不是盲跑。"""
+    """替换 ``${upstream.result.content}`` / ``${upstream.result.asset}``；多版本上游未选择时拒绝执行而不是盲跑。"""
     node_id = str(node.get("id", ""))
+    capability_id = str(node.get("capability_id") or "")
     upstream_id = next(
         (
             str(edge.get("source"))
@@ -841,12 +887,51 @@ def _resolve_params(
             return params, "上游已产出多个版本，请先在其中选一个，再运行当前节点"
         # 另一种真实原因：上游没产出过（从未跑过 / 上一次失败 / 候选区被清了）
         return params, "上游节点还没有可用产出，请先确保上游节点运行成功后再运行本节点"
+    upstream_asset_id = (
+        _upstream_asset(upstream_node) if upstream_node is not None else None
+    )
+    # 图生视频（I2V）自动识别：视频节点的上游节点产出了图像资产、且 params 没显式给
+    # source_asset → 自动带上。用户手动画布拉条接上下游也是这条路（不取人配置面板）。
+    auto_i2v = (
+        capability_id == "video.generate"
+        and upstream_asset_id
+        and "source_asset" not in params
+        and upstream_node is not None
+        and str(upstream_node.get("capability_id") or "") == "image.generate"
+    )
+
     resolved: dict[str, Any] = {}
     for key, value in params.items():
-        if isinstance(value, str) and upstream_content:
+        if isinstance(value, str) and UPSTREAM_ASSET_REF_RE.search(value):
+            # 资产引用优先于文本引用判定（两类记号不同时出现在同一值上，先查防吞）
+            if upstream_asset_id:
+                resolved[key] = UPSTREAM_ASSET_REF_RE.sub(upstream_asset_id, value)
+            else:
+                resolved[key] = value  # 未决：由下游的「上游无产出」错误分支接力拦住
+        elif isinstance(value, str) and upstream_content:
             resolved[key] = UPSTREAM_REF_RE.sub(upstream_content, value)
         else:
             resolved[key] = value
+    if auto_i2v:
+        resolved["source_asset"] = upstream_asset_id
+    elif capability_id == "video.generate" and upstream_node is not None and str(
+        upstream_node.get("capability_id") or ""
+    ) == "image.generate" and "source_asset" not in params:
+        # 用户已把视频节点接在图像节点后面，却拿不到唯一可用资产 = 上游多版本未手选；
+        # 绝不能静默退回文生视频重新随机生成一张「另一幅画」、然后报告成「图生视频」——
+        # 与文本引用同一铁律：拒绝，不肓跑
+        if upstream_asset_id is None:
+            succeeded_assets = [
+                c
+                for c in (upstream_node.get("candidates") or [])
+                if isinstance(c, dict) and c.get("status") == "succeeded"
+            ]
+            if succeeded_assets:
+                return params, "上游已产出多个版本，请先在其中选一个，再运行当前节点"
+            return params, "上游节点还没有可用产出，请先确保上游节点运行成功后再运行本节点"
+    elif UPSTREAM_ASSET_REF_RE.search(str(params.get("source_asset", ""))) and not upstream_asset_id:
+        # 显式引用了上游资产但上游还没产出 → 与文本引用同一铁律，明说原因
+        return params, "上游节点还没有可用产出，请先确保上游节点运行成功后再运行本节点"
     return resolved, None
 
 

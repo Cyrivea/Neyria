@@ -66,10 +66,11 @@ export const creativeToolCatalog: CreativeToolCatalogItem[] = [
   {
     type: 'video',
     name: '视频生成',
-    description: '把镜头与画面描述转成短视频片段（文生视频）。',
+    description:
+      '把镜头与画面描述转成短视频片段。连在图像节点后自动切换成「图生视频」，拿上游的图做首帧让它动起来。',
     badge: '文字生视频',
     color: '#a6a6a6',
-    inputHint: '镜头描述、风格、比例、时长',
+    inputHint: '镜头描述、风格、比例、时长（接上游图像后自动图生视频，宽高比跟随源图）',
     defaults: {
       prompt: '镜头缓慢推进穿过雨夜的城市街道，霓虹灯反射在湿漉漉的地面上',
       style: '电影写实',

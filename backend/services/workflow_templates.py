@@ -4,9 +4,11 @@
 连线永远由平台机械完成（各链接到共享的 Input/Output 端点），模型与模板
 都不接触 edges，因此多链并存也不存在错接/乱接的可能。
 
-依赖注入约定（2026-10-06 拍板）：
+依赖注入约定（2026-10-06 拍板，2026-10-28 增补 I2V）：
 - 依词生图（lyrics_cover / full_mv 的图）：图像 prompt = 槽位画面描述 + 歌词引用；
 - 歌词→视频（lyrics_video）：视频 prompt = 槽位镜头描述 + 歌词引用；
+- 图生视频（image_anim / cover_mv）：视频节点接 source_asset 槽位/上游图像引用
+  （``${upstream.result.asset}``），画面是那张图动起来而不是重新生成另一幅；
 - full_mv 的视频不接图引用：Wan2.2 是纯文生视频，把图像产物的 Markdown
   链接拼进文本 prompt 只会污染镜头描述；MV 意境由助手在 mv_prompt 槽位里写足。
 """
@@ -16,6 +18,15 @@ from __future__ import annotations
 from typing import Any
 
 UPSTREAM_REF = "${upstream.result.content}"
+UPSTREAM_ASSET_REF = "${upstream.result.asset}"
+
+_I2V_SLOTS: dict[str, SlotDef] = {
+    "anim_prompt": ("video.generate", "prompt", None, True, "镜头运动描述（图上怎么动）"),
+    "anim_style": ("video.generate", "style", "电影写实", False, "视觉风格"),
+    "anim_duration": ("video.generate", "duration", "5 秒", False, "视频时长"),
+    # 来源图片：助手从对话里见到的 /api/assets/xxx.jpg 或资产 id 都接受（运行时归一）
+    "source_asset": ("video.generate", "source_asset", None, True, "来源图片（资产 id 或 /api/assets/ 路径）"),
+}
 
 # 槽位目录：槽位名 → (能力, 参数名, 默认值, 是否必填, 中文标签)
 # 默认值与 schemas/capability.py 的 pydantic 默认对齐；枚举合法性由 pydantic 模型把关
@@ -62,6 +73,7 @@ class TemplateSpec:
         blocks: list[str],
         slots: list[tuple[str, SlotDef]],
         inject: dict[str, str] | None = None,
+        asset_ref: dict[str, str] | None = None,
     ) -> None:
         self.template_id = template_id
         self.name = name
@@ -70,6 +82,9 @@ class TemplateSpec:
         self.slots = slots
         # param 注入规则：capability_id → 依赖说明文案（出现在 prompt 的引用前导句）
         self.inject = inject or {}
+        # 资产依赖规则：capability_id → 参数名，运行时用上游资产引用记号预填
+        # （cover_mv 的视频节点要 source_asset = ${upstream.result.asset}）
+        self.asset_ref = asset_ref or {}
 
 
 WORKFLOW_TEMPLATES: dict[str, TemplateSpec] = {
@@ -118,6 +133,24 @@ WORKFLOW_TEMPLATES: dict[str, TemplateSpec] = {
         ["lyrics.generate", "image.generate", "video.generate"],
         [*_LYRICS_SLOTS, *_COVER_SLOTS, *_MV_SLOTS],
         inject={"image.generate": "请围绕以下歌词的意境创作视觉画面："},
+    ),
+    "image_anim": TemplateSpec(
+        "image_anim",
+        "一张图 → 让它动起来",
+        "图生视频：把已生成/上传的图片作为首帧，加镜头运动描进行动画化。"
+        "用户诉求『把这张图/封面动起来』『让某资产变视频』的唯一入口。",
+        ["video.generate"],
+        [(name, spec) for name, spec in _I2V_SLOTS.items()],
+    ),
+    "cover_mv": TemplateSpec(
+        "cover_mv",
+        "一首歌 + 依词封面 + 封面动起来",
+        "歌词 → 依词独动封面 → 用这张封面做首帧的 MV。当用户明说想『封面动起来』或"
+        "要 MV 和封面画面一致时使用，MV 成员得声明『这是依照封面生成的』。",
+        ["lyrics.generate", "image.generate", "video.generate"],
+        [*_LYRICS_SLOTS, *_COVER_SLOTS, *_MV_SLOTS],
+        inject={"image.generate": "请围绕以下歌词的意境创作视觉画面："},
+        asset_ref={"video.generate": "source_asset"},
     ),
 }
 
@@ -249,5 +282,8 @@ def build_chain_params(
         lead_in = template.inject.get(capability_id)
         if lead_in and "prompt" in params:
             params["prompt"] = f"{params['prompt']}\n\n{lead_in}\n{UPSTREAM_REF}"
+        asset_param = template.asset_ref.get(capability_id)
+        if asset_param:
+            params[asset_param] = UPSTREAM_ASSET_REF
         params_list.append(params)
     return params_list, None

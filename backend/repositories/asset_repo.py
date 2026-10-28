@@ -72,6 +72,27 @@ def insert(
     return _row(row)
 
 
+def get_owned(asset_id: str, user_id: int) -> dict[str, Any] | None:
+    """属主安全的资产查询：越权访问一律返回 None（与“不存在”同口径，不泄露他人资产存在性）。"""
+    with db_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            f"SELECT {_COLUMNS} FROM assets WHERE id=? AND user_id=?", (asset_id, user_id)
+        ).fetchone()
+    return _row(row) if row else None
+
+
+def get_owned_by_filename(filename: str, user_id: int) -> dict[str, Any] | None:
+    """按 /api/assets/<filename> 路径回收资产——助手在对话历史里只看到这种形态。"""
+    with db_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            f"SELECT {_COLUMNS} FROM assets WHERE filename=? AND user_id=?",
+            (filename, user_id),
+        ).fetchone()
+    return _row(row) if row else None
+
+
 def list_for_user(
     user_id: int, project_id: int | None = None, limit: int = 100
 ) -> list[dict[str, Any]]:

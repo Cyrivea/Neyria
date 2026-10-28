@@ -36,12 +36,19 @@ class ImageGenerateInput(BaseModel):
 
 
 class VideoGenerateInput(BaseModel):
-    """视频 Block 的受控输入（Wan2.2-T2V 文生视频）；与前端面板共用校验边界。"""
+    """视频 Block 的受控输入；与前端面板共用校验边界。
+
+    双形态（2026-10-28，solved #137）：
+    - 文生视频（T2V）：不给 source_asset，纯提示词驱动；
+    - 图生视频（I2V）：给 source_asset（资产 id `asset-xxx` 或资产 URL `/api/assets/xx.jpg`
+      都接受），上游画面作为首帧引导。运行时做属主校验；Provider 不支持 I2V 时如实拒绝。
+    """
 
     prompt: str = Field(..., min_length=1, max_length=500)
     style: VideoStyle = Field("电影写实", max_length=80)
     ratio: VideoRatio = "16:9"
     duration: VideoDuration = "5 秒"
+    source_asset: str | None = Field(None, min_length=4, max_length=160)
 
 
 class CapabilityRunRequest(BaseModel):
