@@ -57,7 +57,7 @@ Neyria 是一个**平台托管模型的 AI 创作工作台**：注册用户开�
 </p>
 
 - **ReAct 编排器**（`backend/services/chat/`）：SSE 流式输出；按 index 聚合多 tool_calls，结果回填后模型可继续要工具，最多 5 轮；
-- **Capability Runtime**（`backend/services/capabilities/`）：生产工具的唯一实现处——Chat Assistant、用户直接使用、Workflow 节点共用同一运行时；歌词走智谱 GLM/Kunbot 网关（`LLM_PROVIDER` 热插拔）、图像走 SiliconFlow Kolors/Kunbot MOSS（`IMAGE_PROVIDER`）、视频走 SiliconFlow Wan2.2 **或本地 ComfyUI LTX-Video**（`VIDEO_PROVIDER`，含图生视频 I2V：画布连线/助手链尾续接自动识别）、检索 embedding 走 BGE-M3；
+- **Capability Runtime**（`backend/services/capabilities/`）：生产工具的唯一实现处——Chat Assistant、用户直接使用、Workflow 节点共用同一运行时；歌词走智谱 GLM/Kunbot 网关（`LLM_PROVIDER` 热插拔）、图像走 SiliconFlow Kolors/Kunbot MOSS（`IMAGE_PROVIDER`）、视频走**本地 ComfyUI LTX-Video / SiliconFlow Wan2.2 / 阿里百炼 wan turbo+flash**（`VIDEO_PROVIDER`，含图生视频 I2V：画布连线/助手链尾续接自动识别）、检索 embedding 走 BGE-M3 / 百炼 `text-embedding-v4`（`EMBEDDING_PROVIDER` 备胎）；
 - **注入防护**（`backend/core/injection_guard.py`）：规则层先行、语义层过 embedding 前先过门控；RAG 上下文 Spotlighting 打标，间接注入触发工具冻结；
 - **任务队列**（`backend/services/job_service.py`）：持久化 jobs/documents，Worker 原子领取 + 租约恢复，失败重试；
 - **计费账本**（`backend/services/billing_service.py`）：usage_events 记账 + 价格版本 + reserve/settle/release 预占结算 + CHECK 非负约束 + 幂等充值。
