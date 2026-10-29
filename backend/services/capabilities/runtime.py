@@ -238,6 +238,12 @@ def _video_executor(inputs: BaseModel) -> dict:
         from services.capabilities.comfyui_video import generate_video as gen_comfyui
 
         return gen_comfyui(inputs, source_row)
+    if config.VIDEO_PROVIDER == "dashscope":
+        if source_row is not None:
+            raise RuntimeError("百炼 wan T2V 默认档不支持图生视频——若要拿现有图出视频，请切回 VIDEO_PROVIDER=comfyui")
+        from services.capabilities.dashscope_video import generate_video as gen_dash
+
+        return gen_dash(inputs)
     if source_row is not None:
         raise RuntimeError(f"当前视频 Provider（{config.VIDEO_PROVIDER}）暂不支持图生视频")
     from services.capabilities.siliconflow_video import generate_video
@@ -247,7 +253,12 @@ def _video_executor(inputs: BaseModel) -> dict:
 
 def _video_billing_model() -> str:
     """跟随 Provider 的真实型号（账本里该写哪个名字由部署决定，不是代码写死）。"""
-    return config.VIDEO_MODEL_COMFYUI if config.VIDEO_PROVIDER == "comfyui" else config.VIDEO_MODEL
+    provider = config.VIDEO_PROVIDER
+    if provider == "comfyui":
+        return config.VIDEO_MODEL_COMFYUI
+    if provider == "dashscope":
+        return config.VIDEO_MODEL_DASH
+    return config.VIDEO_MODEL
 
 
 def _register() -> dict[str, CapabilityEntry]:

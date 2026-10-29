@@ -53,6 +53,16 @@ KUNBOT_IMAGE_BASE = os.getenv("KUNBOT_IMAGE_BASE", "https://anthropic.kunbot.org
 IMAGE_PROVIDER = os.getenv("IMAGE_PROVIDER", "siliconflow").strip()
 IMAGE_MODEL_KUNBOT = os.getenv("IMAGE_MODEL_KUNBOT", "OpenMOSS-Team/MOSS-Image-Base").strip()  # 7sref 唯一在岗
 
+# 阿里百炼 DashScope（视频云端替补 + embedding 备胎）
+DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", "").strip()
+VIDEO_MODEL_DASH = os.getenv("VIDEO_MODEL_DASH", "wanx2.1-t2v-turbo").strip()  # 新客送 200s 免费；时长固定 5s
+
+# embedding Provider：siliconflow（bge-m3） / dashscope（text-embedding-v4，备用）
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "siliconflow").strip()
+DASHSCOPE_EMBEDDING_MODEL = os.getenv("DASHSCOPE_EMBEDDING_MODEL", "text-embedding-v4").strip()
+DASHSCOPE_EMBEDDING_DIM = int(os.getenv("DASHSCOPE_EMBEDDING_DIM", "1024"))
+DASHSCOPE_EMBEDDING_API_URL = os.getenv("DASHSCOPE_EMBEDDING_API_URL", "https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding").strip()
+
 # 图像走 SiliconFlow Kolors（中文友好；该账号 FLUX 被禁用）
 IMAGE_MODEL = os.getenv("IMAGE_MODEL", "Kwai-Kolors/Kolors").strip()
 VIDEO_MODEL = os.getenv("VIDEO_MODEL", "Wan-AI/Wan2.2-T2V-A14B").strip()
@@ -65,6 +75,8 @@ VIDEO_MODEL_COMFYUI = os.getenv("VIDEO_MODEL_COMFYUI", "LTX-Video-2B-distilled/l
 SILICONFLOW_API_KEY = os.getenv("SILICONFLOW_API_KEY", "").strip()
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3").strip()
 EMBEDDING_API_URL = os.getenv("EMBEDDING_API_URL", "https://api.siliconflow.cn/v1/embeddings").strip()
+# 百炼任务异步端点模板（submit/status 同主机）
+DASHSCOPE_TASK_BASE = os.getenv("DASHSCOPE_TASK_BASE", "https://dashscope.aliyuncs.com/api/v1").strip()
 RAG_COLLECTION_NAME = os.getenv("RAG_COLLECTION_NAME", "documents_siliconflow_bge_m3").strip()
 RAG_DISTANCE_THRESHOLD = float(os.getenv("RAG_DISTANCE_THRESHOLD", "1.10"))
 

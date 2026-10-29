@@ -4,6 +4,7 @@ from typing import Any
 
 import httpx
 
+from core import config
 from core.config import EMBEDDING_API_URL, EMBEDDING_MODEL, SILICONFLOW_API_KEY
 
 logger = logging.getLogger("rag.embedding")
@@ -28,6 +29,16 @@ def _extract_vectors(payload: dict[str, Any], context: str) -> list[list[float]]
 
 
 def _embed(inputs: str | list[str], context: str) -> list[list[float]]:
+    """Provider 分流：siliconflow（默认，走 bge-m3） / dashscope（备胎，欠费时跟下家换小黄鱼）。
+
+    2026-10-29 背景：SiliconFlow 欠费 402 干塌了整个 RAG，但没有退路永远不行——
+    这个流亡政备由 EMBEDDING_PROVIDER 选择，配置文件环境变量即是逃生舱。
+    """
+    if config.EMBEDDING_PROVIDER == "dashscope":
+        from services.rag.embedding_dashscope import _embed as dash_embed
+
+        return dash_embed(inputs, context)
+
     if not SILICONFLOW_API_KEY:
         raise RuntimeError("未配置 SILICONFLOW_API_KEY，RAG 向量检索暂不可用")
 

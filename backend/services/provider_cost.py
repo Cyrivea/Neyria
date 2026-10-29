@@ -34,6 +34,11 @@ _PRICES: dict[str, dict[str, Decimal | str]] = {
     "BAAI/bge-m3": {"kind": "token", "input_yuan_per_1k": Decimal("0"), "output_yuan_per_1k": Decimal("0")},
     "Kwai-Kolors/Kolors": {"kind": "per_call", "yuan": Decimal("0")},
     "Wan-AI/Wan2.2-T2V-A14B": {"kind": "per_call", "yuan": Decimal("2.00")},
+    # 百炼（DashScope）：按秒计费——usage 报的 completion_tokens = 真实秒数，payout = 秒数 × 档单价
+    "wanx2.1-t2v-turbo": {"kind": "per_second", "yuan_per_second": Decimal("0.24")},
+    "wan2.2-t2v-plus": {"kind": "per_second", "yuan_per_second": Decimal("0.14")},
+    "wan2.2-i2v-flash": {"kind": "per_second", "yuan_per_second": Decimal("0.10")},
+    "text-embedding-v4": {"kind": "token", "input_yuan_per_1k": Decimal("0.0005"), "output_yuan_per_1k": Decimal("0")},
     # 本地 ComfyUI LTX-Video 自建算力：上游云端成本≈0（电费不入账）
     # 但显式记 0 而非 NULL——「上线过且成本为 0」与「未校准」是两种不同会计语义
     "LTX-Video-2B-distilled/local": {"kind": "per_call", "yuan": Decimal("0")},
@@ -63,6 +68,9 @@ def estimate_cost_micro(model: str | None, prompt_tokens: int = 0, completion_to
     kind = entry.get("kind")
     if kind == "per_call":
         return int(Decimal(str(entry["yuan"])) * MICRO_PER_CNY)
+    if kind == "per_second":
+        # 视频供应端按秒：usage 适配层把真实秒数放在 completion_tokens 一栏提交
+        return int(Decimal(str(entry["yuan_per_second"])) * Decimal(completion_tokens) * MICRO_PER_CNY)
     if kind == "token":
         yuan = (
             Decimal(prompt_tokens) * Decimal(str(entry["input_yuan_per_1k"]))
