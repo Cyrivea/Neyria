@@ -1,0 +1,246 @@
+{
+  "summary": {
+    "total": 15,
+    "positive_cases": 12,
+    "negative_cases": 3,
+    "recall_at_1": 0.9167,
+    "recall_at_3": 0.9167,
+    "mrr": 0.9167,
+    "nohit_accuracy": 1.0,
+    "max_n_results": 3,
+    "distance_threshold": 1.1,
+    "corpus_size": 8,
+    "elapsed_s": 6.2
+  },
+  "details": [
+    {
+      "query": "情歌和弦怎么配才有那种推进的感觉",
+      "expect": "chord_progressions.txt",
+      "hits": [
+        {
+          "source": "chord_progressions.txt",
+          "distance": 0.7317
+        },
+        {
+          "source": "song_structure.txt",
+          "distance": 0.9557
+        },
+        {
+          "source": "lyrics_rhyme.txt",
+          "distance": 0.9968
+        }
+      ],
+      "first_rank": 1,
+      "ok": true
+    },
+    {
+      "query": "主歌和副歌应该各写什么内容",
+      "expect": "song_structure.txt",
+      "hits": [
+        {
+          "source": "song_structure.txt",
+          "distance": 0.7428
+        },
+        {
+          "source": "lyrics_rhyme.txt",
+          "distance": 0.782
+        },
+        {
+          "source": "chord_progressions.txt",
+          "distance": 0.9742
+        }
+      ],
+      "first_rank": 1,
+      "ok": true
+    },
+    {
+      "query": "一首歌中间差不多三分之二的地方应该来点什么变化",
+      "expect": "song_structure.txt",
+      "hits": [
+        {
+          "source": "song_structure.txt",
+          "distance": 0.7234
+        },
+        {
+          "source": "chord_progressions.txt",
+          "distance": 0.8597
+        },
+        {
+          "source": "lyrics_rhyme.txt",
+          "distance": 0.8966
+        }
+      ],
+      "first_rank": 1,
+      "ok": true
+    },
+    {
+      "query": "人声听起来很沉不够穿透是哪里出了问题",
+      "expect": "mixing_eq.txt",
+      "hits": [
+        {
+          "source": "mixing_eq.txt",
+          "distance": 0.6428
+        },
+        {
+          "source": "vocal_recording.txt",
+          "distance": 0.7407
+        }
+      ],
+      "first_rank": 1,
+      "ok": true
+    },
+    {
+      "query": "副歌应该选什么样的韵脚最容易记住",
+      "expect": "lyrics_rhyme.txt",
+      "hits": [
+        {
+          "source": "lyrics_rhyme.txt",
+          "distance": 0.6194
+        },
+        {
+          "source": "song_structure.txt",
+          "distance": 0.849
+        },
+        {
+          "source": "chord_progressions.txt",
+          "distance": 0.9211
+        }
+      ],
+      "first_rank": 1,
+      "ok": true
+    },
+    {
+      "query": "中文歌词最后一字用「江」「阳」「刚」这些字算合辙吗",
+      "expect": "lyrics_rhyme.txt",
+      "hits": [
+        {
+          "source": "lyrics_rhyme.txt",
+          "distance": 0.6438
+        }
+      ],
+      "first_rank": 1,
+      "ok": true
+    },
+    {
+      "query": "家里没有录音棚怎么隔绝外面的噪音录人声",
+      "expect": "vocal_recording.txt",
+      "hits": [
+        {
+          "source": "vocal_recording.txt",
+          "distance": 0.4607
+        },
+        {
+          "source": "mixing_eq.txt",
+          "distance": 0.9179
+        }
+      ],
+      "first_rank": 1,
+      "ok": true
+    },
+    {
+      "query": "麦克风唛噗噗的爆喷音怎么避免",
+      "expect": "vocal_recording.txt",
+      "hits": [
+        {
+          "source": "vocal_recording.txt",
+          "distance": 0.7708
+        },
+        {
+          "source": "mixing_eq.txt",
+          "distance": 0.943
+        },
+        {
+          "source": "mastering_lufs.txt",
+          "distance": 1.0615
+        }
+      ],
+      "first_rank": 1,
+      "ok": true
+    },
+    {
+      "query": "做完一半想尝试另一种编曲方向怕改不回来了怎么办",
+      "expect": "daw_workflow.txt",
+      "hits": [
+        {
+          "source": "daw_workflow.txt",
+          "distance": 0.9989
+        },
+        {
+          "source": "copyright_licence.txt",
+          "distance": 1.0435
+        },
+        {
+          "source": "mixing_eq.txt",
+          "distance": 1.0582
+        }
+      ],
+      "first_rank": 1,
+      "ok": true
+    },
+    {
+      "query": "CPU 不够了大工程跑不开声音卡顿",
+      "expect": "daw_workflow.txt",
+      "hits": [
+        {
+          "source": "mixing_eq.txt",
+          "distance": 1.0375
+        }
+      ],
+      "first_rank": null,
+      "ok": false
+    },
+    {
+      "query": "上传到音乐平台的歌响度应该调多少才不会被压",
+      "expect": "mastering_lufs.txt",
+      "hits": [
+        {
+          "source": "mastering_lufs.txt",
+          "distance": 0.5661
+        },
+        {
+          "source": "mixing_eq.txt",
+          "distance": 0.8048
+        },
+        {
+          "source": "vocal_recording.txt",
+          "distance": 0.8408
+        }
+      ],
+      "first_rank": 1,
+      "ok": true
+    },
+    {
+      "query": "别人翻唱我的歌我要拿着什么权利收钱",
+      "expect": "copyright_licence.txt",
+      "hits": [
+        {
+          "source": "copyright_licence.txt",
+          "distance": 0.6464
+        }
+      ],
+      "first_rank": 1,
+      "ok": true
+    },
+    {
+      "query": "红烧肉怎么做",
+      "expect": null,
+      "hits": [],
+      "first_rank": null,
+      "ok": true
+    },
+    {
+      "query": "北京到上海的驾车时间要几点能到",
+      "expect": null,
+      "hits": [],
+      "first_rank": null,
+      "ok": true
+    },
+    {
+      "query": "请推荐几本量子力学基础教材",
+      "expect": null,
+      "hits": [],
+      "first_rank": null,
+      "ok": true
+    }
+  ]
+}
