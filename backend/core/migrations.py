@@ -580,6 +580,63 @@ def _m017_steps_allow_reused_status(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_workflow_steps_run ON workflow_steps(run_id)")
 
 
+def _m019_usage_source_mcp(conn: sqlite3.Connection) -> None:
+    """E6①：usage_events.source 加 'mcp' 入口（外部 Agent 经 MCP 协议调用）。
+
+    SQLite 无改 CHECK 语法，只能重建表搬数据（m002/m017 同手法）。
+    迁移器全程 foreign_keys=OFF，assets→usage_events 的 FK 不阻 DROP。
+    """
+    cols = [row[1] for row in conn.execute("PRAGMA table_info(usage_events)")]
+    if not cols:
+        return
+    conn.execute("DROP TABLE IF EXISTS usage_events_new")
+    conn.execute(
+        """
+        CREATE TABLE usage_events_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+            capability_id TEXT NOT NULL,
+            source TEXT NOT NULL CHECK (source IN ('standalone', 'assistant', 'workflow', 'mcp')),
+            model TEXT,
+            prompt_tokens INTEGER NOT NULL DEFAULT 0,
+            completion_tokens INTEGER NOT NULL DEFAULT 0,
+            total_tokens INTEGER NOT NULL DEFAULT 0,
+            cached_tokens INTEGER NOT NULL DEFAULT 0,
+            reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+            provider_request_id TEXT,
+            status TEXT NOT NULL CHECK (status IN ('succeeded', 'model_unavailable', 'failed')),
+            error TEXT,
+            duration_ms REAL,
+            price_version_id INTEGER,
+            billed_credits_micro INTEGER,
+            provider_cost_micro INTEGER,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO usage_events_new (id, user_id, project_id, capability_id, source, model, "
+        "prompt_tokens, completion_tokens, total_tokens, cached_tokens, reasoning_tokens, "
+        "provider_request_id, status, error, duration_ms, price_version_id, billed_credits_micro, "
+        "provider_cost_micro, created_at) "
+        "SELECT id, user_id, project_id, capability_id, source, model, "
+        "prompt_tokens, completion_tokens, total_tokens, cached_tokens, reasoning_tokens, "
+        "provider_request_id, status, error, duration_ms, price_version_id, billed_credits_micro, "
+        "provider_cost_micro, created_at FROM usage_events"
+    )
+    conn.execute("DROP TABLE usage_events")
+    conn.execute("ALTER TABLE usage_events_new RENAME TO usage_events")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_usage_events_user_project "
+        "ON usage_events(user_id, project_id, created_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_usage_events_capability "
+        "ON usage_events(capability_id, created_at)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     ("baseline: users/messages/projects + indexes", _m001_baseline),
     ("add foreign keys via table rebuild", _m002_add_foreign_keys),
@@ -599,6 +656,7 @@ MIGRATIONS: list[Migration] = [
     ("workflow run keep flag (queue archive)", _m016_workflow_run_keep_flag),
     ("workflow steps allow reused status", _m017_steps_allow_reused_status),
     ("usage token layers: cached/reasoning/request_id", _m018_usage_token_layers),
+    ("usage source adds mcp entry", _m019_usage_source_mcp),
 ]
 
 
