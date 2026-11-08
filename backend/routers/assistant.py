@@ -22,6 +22,11 @@ router = APIRouter(tags=["assistant"])
 
 @router.post("/chat")
 async def chat(req: ChatRequest, user=Depends(chat_rate_limit)):
+    # 输入语义校验必须在 StreamingResponse 之前：响应头一旦发出，生成器里再抛
+    # HTTPException 只能变成 500 断流（A1 接线测试真机抓到，服务层同名检查保留
+    # 作双保险——两个错误来源不同：路由层防接线、服务层防内部调用）。
+    if req.regenerate and req.edit_from_id is not None:
+        raise HTTPException(status_code=400, detail="regenerate 与 edit_from_id 互斥，只能传一个")
     return StreamingResponse(
         stream_chat(
             user,

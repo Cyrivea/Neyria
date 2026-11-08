@@ -9,6 +9,10 @@ import os
 import pytest
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key")
+# 测试环境锁定 embedding 主路径为 siliconflow：.env 里的 EMBEDDING_PROVIDER（如 dashscope）
+# 会经 load_dotenv 注入，把按 siliconflow 响应形状写的存量用例全部导向备胎分支而误杀。
+# dashscope 分支自己的用例直接调它的模块，不受影响。
+os.environ.setdefault("EMBEDDING_PROVIDER", "siliconflow")
 
 
 @pytest.fixture(scope="session", autouse=True)

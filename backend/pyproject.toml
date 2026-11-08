@@ -52,10 +52,10 @@ source = ["core", "schemas", "services", "agents", "repositories", "routers", "w
 omit = ["*/__init__.py"]
 
 [tool.coverage.report]
-# fail_under 是防回退总闸，不是质量目标本身。2026-10-27 实测业务口径 74.1%（routers 层
-# 零覆盖，存量用例全在 service 层，见 unsolved.md 新登项）；闸值取整压到 70 锁定，
-# 补完 routers/判定器测试后按 5 点一档递增
-fail_under = 70
+# fail_under 是防回退总闸，不是质量目标本身。2026-10-29 A1 落地 routers 层 API 测试后
+# 实测 81.7%（原 service 层单测 74.1% + 接线测试拉高）；闸值拔到 75 锁定。
+# 后续补 assistant_service/assets 路由后按 5 点一档递增
+fail_under = 75
 show_missing = true
 exclude_also = [
     "if __name__ == .__main__.:",
