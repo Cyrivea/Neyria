@@ -178,7 +178,14 @@ class TestComplete:
         client = _client(monkeypatch, script)
         reply = client.complete(model="m", messages=[])
         assert reply.content == "hello"
-        assert reply.usage == {"prompt_tokens": 3, "completion_tokens": 4, "total_tokens": 7}
+        # I2 分层：Provider 未给 details 时补零层（不捏造），契约含五个键
+        assert reply.usage == {
+            "prompt_tokens": 3,
+            "completion_tokens": 4,
+            "total_tokens": 7,
+            "cached_tokens": 0,
+            "reasoning_tokens": 0,
+        }
 
     def test_usage_absent_is_none_not_zero(self, monkeypatch):
         script = {

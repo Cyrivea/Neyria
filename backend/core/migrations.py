@@ -529,6 +529,23 @@ def _m016_workflow_run_keep_flag(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE workflow_runs ADD COLUMN kept INTEGER NOT NULL DEFAULT 0")
 
 
+def _m018_usage_token_layers(conn: sqlite3.Connection) -> None:
+    """I2 收尾：用量账本加 token 分层与 Provider 请求 id。
+
+    - cached_tokens：上下文缓存命中的 prompt token（计费更便宜的那部分）；
+    - reasoning_tokens：推理模型思考增量（GLM-5.3/DeepSeek-R 类）；
+    - provider_request_id：上游一次调用的真实请求 id，对账与客诉回溯的硬凭据。
+    三列都允许空/0——老数据没有就保持 0，不倒填不造假。
+    """
+    cols = [row[1] for row in conn.execute("PRAGMA table_info(usage_events)")]
+    if "cached_tokens" not in cols:
+        conn.execute("ALTER TABLE usage_events ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0")
+    if "reasoning_tokens" not in cols:
+        conn.execute("ALTER TABLE usage_events ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0")
+    if "provider_request_id" not in cols:
+        conn.execute("ALTER TABLE usage_events ADD COLUMN provider_request_id TEXT")
+
+
 def _m017_steps_allow_reused_status(conn: sqlite3.Connection) -> None:
     """快照缓存复用状态的落库缺口：workflow_steps.status 的 CHECK 没有 'reused'。
 
@@ -581,6 +598,7 @@ MIGRATIONS: list[Migration] = [
     ("add message user feedback", _m015_add_message_feedback),
     ("workflow run keep flag (queue archive)", _m016_workflow_run_keep_flag),
     ("workflow steps allow reused status", _m017_steps_allow_reused_status),
+    ("usage token layers: cached/reasoning/request_id", _m018_usage_token_layers),
 ]
 
 

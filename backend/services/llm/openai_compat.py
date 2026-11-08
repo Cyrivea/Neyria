@@ -229,15 +229,22 @@ class OpenAICompatChatClient:
         message = choices[0].get("message") or {}
         calls = message.get("tool_calls") or []
         usage = data.get("usage")
-        return ChatReply(
-            content=message.get("content"),
-            usage={
+        # I2 分层：OpenAI 兼容层把 cache/reasoning 细节和请求 id 一并提出
+        usage_payload = None
+        if usage:
+            prompt_details = usage.get("prompt_tokens_details") or {}
+            completion_details = usage.get("completion_tokens_details") or {}
+            usage_payload = {
                 "prompt_tokens": int(usage.get("prompt_tokens", 0) or 0),
                 "completion_tokens": int(usage.get("completion_tokens", 0) or 0),
                 "total_tokens": int(usage.get("total_tokens", 0) or 0),
+                "cached_tokens": int(prompt_details.get("cached_tokens", 0) or 0),
+                "reasoning_tokens": int(completion_details.get("reasoning_tokens", 0) or 0),
             }
-            if usage
-            else None,
+        return ChatReply(
+            content=message.get("content"),
+            usage=usage_payload,
+            request_id=data.get("id"),
             tool_calls=[
                 ToolCallDelta(
                     index=int(c.get("index") or 0),

@@ -101,6 +101,10 @@ async def _record_usage(
             error[:500] if error else None,
             duration_ms,
             datetime.now(UTC).isoformat(),
+            # I2 分层：cache/reasoning 与上游请求 id 一同落账（Provider 不给即 0/None）
+            int(usage.get("cached_tokens", 0) or 0) if usage else 0,
+            int(usage.get("reasoning_tokens", 0) or 0) if usage else 0,
+            (usage.get("request_id") or None) if usage else None,
         )
         event_id = int(event["id"])
         # I3：估算上游成本挂到账本（未收录模型返回 None → 列保持 NULL，宁缺不造假）；
@@ -156,6 +160,10 @@ async def _settle_reservation(
             int((usage or {}).get("prompt_tokens", 0)),
             int((usage or {}).get("completion_tokens", 0)),
             usage_event_id=usage_event_id,
+            # I2 闭环：billing 侧 compute_billed_credits 早就接受分层价参，
+            # 现在真正把真实分层喂进去（cache 更便宜/ reasoning 更贵按价版算）
+            cached_tokens=int((usage or {}).get("cached_tokens", 0) or 0),
+            reasoning_tokens=int((usage or {}).get("reasoning_tokens", 0) or 0),
         )
     except Exception as exc:
         logger.warning(

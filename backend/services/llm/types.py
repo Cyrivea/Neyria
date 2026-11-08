@@ -43,11 +43,16 @@ class ChatReply:
     """非流式完整回复：文本 + 可选工具调用列表（evaluate/场景类脚本需要）。
 
     usage 是透明的账本透传通道（歌词/意图分类等 owns 自己的 token 记账），
-    Provider 没给就给 None；调用方绝不允许凭 None 捏造数字（宁缺不造假）。"""
+    Provider 没给就给 None；调用方绝不允许凭 None 捏造数字（宁缺不造假）。
+    usage 里除 prompt/completion/total 外，Provider 给了就带上（I2 分层）：
+    - cached_tokens（prompt_tokens_details.cached_tokens，OpenAI 兼容形态）
+    - reasoning_tokens（completion_tokens_details.reasoning_tokens）
+    request_id 是上游本次调用的真实请求 id（对账/客诉回溯凭据）。"""
 
     content: str | None
     tool_calls: list[ToolCallDelta] = field(default_factory=list)
     usage: dict[str, int] | None = None
+    request_id: str | None = None
 
 
 class LLMStream(Protocol):

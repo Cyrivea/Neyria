@@ -9,7 +9,8 @@ from core.database import db_connection
 
 _COLUMNS = (
     "id, user_id, project_id, capability_id, source, model, prompt_tokens, "
-    "completion_tokens, total_tokens, status, error, duration_ms, created_at"
+    "completion_tokens, total_tokens, cached_tokens, reasoning_tokens, "
+    "provider_request_id, status, error, duration_ms, created_at"
 )
 
 
@@ -26,6 +27,9 @@ def insert(
     error: str | None,
     duration_ms: float | None,
     created_at: str,
+    cached_tokens: int = 0,
+    reasoning_tokens: int = 0,
+    provider_request_id: str | None = None,
 ) -> dict[str, Any]:
     with db_connection() as conn:
         conn.row_factory = sqlite3.Row
@@ -44,6 +48,9 @@ def insert(
                 prompt_tokens,
                 completion_tokens,
                 total_tokens,
+                cached_tokens,
+                reasoning_tokens,
+                provider_request_id,
                 status,
                 error,
                 duration_ms,

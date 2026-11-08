@@ -134,15 +134,22 @@ class ZhipuChatClient:
         message = choices[0].message
         calls = getattr(message, "tool_calls", None) or []
         usage = getattr(response, "usage", None)
-        return ChatReply(
-            content=getattr(message, "content", None),
-            usage={
+        # I2 分层：智谱 SDK 的 usage 同样带 details（有就提，没有不捏造）
+        usage_payload = None
+        if usage is not None:
+            prompt_details = getattr(usage, "prompt_tokens_details", None)
+            completion_details = getattr(usage, "completion_tokens_details", None)
+            usage_payload = {
                 "prompt_tokens": int(getattr(usage, "prompt_tokens", 0) or 0),
                 "completion_tokens": int(getattr(usage, "completion_tokens", 0) or 0),
                 "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
+                "cached_tokens": int(getattr(prompt_details, "cached_tokens", 0) or 0) if prompt_details else 0,
+                "reasoning_tokens": int(getattr(completion_details, "reasoning_tokens", 0) or 0) if completion_details else 0,
             }
-            if usage is not None
-            else None,
+        return ChatReply(
+            content=getattr(message, "content", None),
+            usage=usage_payload,
+            request_id=getattr(response, "id", None),
             tool_calls=[
                 ToolCallDelta(
                     index=getattr(call, "index", None) or 0,

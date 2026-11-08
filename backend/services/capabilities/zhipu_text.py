@@ -58,5 +58,9 @@ def generate_lyrics_text(inputs: LyricsGenerateInput) -> dict:
             "prompt_tokens": int(usage.get("prompt_tokens", 0) or 0),
             "completion_tokens": int(usage.get("completion_tokens", 0) or 0),
             "total_tokens": int(usage.get("total_tokens", 0) or 0),
+            # I2 分层透传：Provider 不给就是 0，不捏造
+            "cached_tokens": int(usage.get("cached_tokens", 0) or 0),
+            "reasoning_tokens": int(usage.get("reasoning_tokens", 0) or 0),
+            "request_id": reply.request_id,
         },
     }
