@@ -3,6 +3,7 @@
 from services.capabilities.runtime import (
     CAPABILITY_REGISTRY,
     CapabilityContext,
+    capability_features,
     current_capability_context,
     run_capability,
     use_capability_context,
@@ -11,6 +12,7 @@ from services.capabilities.runtime import (
 __all__ = [
     "CAPABILITY_REGISTRY",
     "CapabilityContext",
+    "capability_features",
     "current_capability_context",
     "run_capability",
     "use_capability_context",

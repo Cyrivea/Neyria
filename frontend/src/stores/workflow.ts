@@ -182,6 +182,23 @@ export const useWorkflowStore = defineStore('workflow', () => {
   }
 
   /** 前端的节点/连线/端点位置 → 后端 Draft（端点也作为节点保存）。 */
+  function nodeParamsFromInstance(node: { toolId?: string; params?: Record<string, string> }) {
+    // 面板编辑的是 creativeTools 实例（localStorage），画布节点上的 params 可能还是
+    // 创建时的快照。Draft 是后端执行时的唯一输入，所以以实例为准合并——
+    // 否则用户在面板里改了 prompt / 参考图，运行用的还是旧值（2026-11-09 修）。
+    const instance = useCreativeToolsStore().instances.find((item) => item.id === node.toolId)
+    const merged: Record<string, string> = { ...(node.params ?? {}), ...(instance?.params ?? {}) }
+    if (instance?.type === 'image') {
+      // 参考图以 assets id 入参（后端做属主校验）；恒写空串，删光参考图才能同步到服务端
+      merged.reference_assets = instance.references
+        .filter((reference) => reference.type === 'image' && reference.assetId)
+        .slice(0, 3)
+        .map((reference) => reference.assetId as string)
+        .join(',')
+    }
+    return merged
+  }
+
   function buildDraftPayload(): WorkflowDraft {
     const toolNodes: WorkflowDraftNode[] = nodes.value.map((node) => ({
       id: node.id,
@@ -195,7 +212,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
       color: node.color,
       x: node.x,
       y: node.y,
-      params: node.params,
+      params: nodeParamsFromInstance(node),
       runStatus: node.runStatus,
       result: node.result ?? null,
       error: node.error ?? null,

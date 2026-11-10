@@ -52,6 +52,9 @@ class CapabilityEntry:
     # 懒读 config：测试里 monkeypatch 环境变量也生效
     billing_model: Callable[[], str] = lambda: ""
     billing_estimate: Callable[[], Decimal] = field(default=lambda: Decimal("0"))
+    # 预检：在预占积分之前跑，返回人话原因即拒绝执行（如「当前模型不支持参考图」）。
+    # 放在线程池里执行，允许做同步 DB 属主校验（不得阻塞事件循环）。
+    preflight: Callable[[BaseModel, CapabilityContext], str | None] | None = None
 
 
 _capability_context: contextvars.ContextVar[CapabilityContext | None] = contextvars.ContextVar(
@@ -183,13 +186,66 @@ def _lyrics_executor(inputs: BaseModel) -> dict:
     return generate_lyrics_text(inputs)
 
 
+def _image_provider_supports_references() -> bool:
+    """当前图像 Provider 能不能吃参考图（图生图）。
+
+    2026-11-09 真机核对结论：kunbot 7sref 只开 /images/generations，
+    /images/edits 直接 400；siliconflow Kolors 也没有参考图入参；本地 ComfyUI
+    的 Illustrious 模板是纯 T2I（IP-Adapter 未装）。所以默认 False——
+    不是忘记接，而是上游能力没有。
+
+    将来哪个 Provider 真支持图生图：把对应开关打开，并在 _image_executor 里
+    把 reference 资产行交给该 Provider，其余链路（上传/入参/属主校验/账本）已经通了。
+    """
+    return config.IMAGE_REFERENCE_SUPPORTED
+
+
+# 各 Provider 的真实出图尺寸（不能统一写死：面板的「输出规格」回显要如实）
+_IMAGE_RATIO_SIZES: dict[str, dict[str, str]] = {
+    "comfyui": {"16:9": "1344×768", "1:1": "1024×1024", "9:16": "768×1344", "4:3": "1152×864"},
+    "kunbot": {"16:9": "1536×1024", "1:1": "1024×1024", "9:16": "1024×1536", "4:3": "1536×1024"},
+    "siliconflow": {"16:9": "1344×768", "1:1": "1024×1024", "9:16": "768×1344", "4:3": "1152×864"},
+}
+
+
+def image_ratio_sizes() -> dict[str, str]:
+    """当前图像 Provider 的 ratio → 实际像素映射（面板提交前核对用）。"""
+    return _IMAGE_RATIO_SIZES.get(config.IMAGE_PROVIDER, _IMAGE_RATIO_SIZES["siliconflow"])
+
+
+def _image_reference_preflight(inputs: BaseModel, context: CapabilityContext) -> str | None:
+    """参考图预检：先验属主，再验 Provider 能力。全程在预占积分之前。"""
+    from schemas.capability import ImageGenerateInput
+
+    assert isinstance(inputs, ImageGenerateInput)
+    references = inputs.reference_assets
+    if not references:
+        return None
+    for reference in references:
+        if _normalize_source_asset(reference, context.user_id) is None:
+            return "参考图不存在、不属于当前账号，或不是图像资产"
+    if not _image_provider_supports_references():
+        return (
+            f"当前图像模型不支持参考图（图生图），请先移除这 {len(references)} 张参考图；"
+            "换用支持参考图的模型后再试"
+        )
+    return None
+
+
 def _image_executor(inputs: BaseModel) -> dict:
-    """图像 Provider 分流：siliconflow（Kolors，默认） / kunbot（gpt-image 系）。
+    """图像 Provider 分流：siliconflow（Kolors）/ kunbot（MOSS）/ comfyui（本地 Illustrious）。
 
     Provider 选择是平台侧部署时刻的环境决策（IMAGE_PROVIDER），用户看不到也不该看到。"""
     from schemas.capability import ImageGenerateInput
 
     assert isinstance(inputs, ImageGenerateInput)
+    if inputs.reference_assets:
+        # 兜底：正常路径已被 _image_reference_preflight 拦住；直调执行器也不能静默忽略。
+        raise RuntimeError("当前图像模型不支持参考图")
+    if config.IMAGE_PROVIDER == "comfyui":
+        from services.capabilities.comfyui_image import generate_image as gen_comfyui
+
+        return gen_comfyui(inputs)
     if config.IMAGE_PROVIDER == "kunbot":
         from services.capabilities.kunbot_image import generate_image as gen_kunbot
 
@@ -201,7 +257,12 @@ def _image_executor(inputs: BaseModel) -> dict:
 
 def _image_billing_model() -> str:
     """跟着 Provider 走的真实型号（usage/账本里的 model 字段绝不能指错方向）。"""
-    return config.IMAGE_MODEL_KUNBOT if config.IMAGE_PROVIDER == "kunbot" else config.IMAGE_MODEL
+    provider = config.IMAGE_PROVIDER
+    if provider == "comfyui":
+        return config.IMAGE_MODEL_COMFYUI
+    if provider == "kunbot":
+        return config.IMAGE_MODEL_KUNBOT
+    return config.IMAGE_MODEL
 
 
 def _normalize_source_asset(ref: str, user_id: int) -> dict | None:
@@ -288,6 +349,7 @@ def _register() -> dict[str, CapabilityEntry]:
             executor=_image_executor,
             billing_model=_image_billing_model,
             billing_estimate=lambda: Decimal(config.BILLING_IMAGE_RESERVE_CREDITS),
+            preflight=_image_reference_preflight,
         ),
         "video.generate": CapabilityEntry(
             capability_id="video.generate",
@@ -301,6 +363,27 @@ def _register() -> dict[str, CapabilityEntry]:
 
 
 CAPABILITY_REGISTRY: dict[str, CapabilityEntry] = _register()
+
+
+def capability_features(capability_id: str) -> dict[str, object] | None:
+    """给前端面板的能力描述（不泄露 Provider/模型真名）。
+
+    参考图能力跟着部署时的 Provider 走：面板据此提前告知「当前模型不支持参考图」，
+    而不是让用户传完、跑完、烧完积分才知道。将来接入模型目录时，这里就是
+    「当前模型能力标签」的落脚点。
+    """
+    from schemas.capability import MAX_IMAGE_REFERENCES
+
+    if capability_id not in CAPABILITY_REGISTRY:
+        return None
+    if capability_id == "image.generate":
+        return {
+            "capability_id": capability_id,
+            "reference_limit": MAX_IMAGE_REFERENCES,
+            "reference_supported": _image_provider_supports_references(),
+            "ratio_sizes": image_ratio_sizes(),
+        }
+    return {"capability_id": capability_id, "reference_limit": 0, "reference_supported": False}
 
 
 async def _write_asset(asset: dict, context: CapabilityContext) -> None:
@@ -426,6 +509,20 @@ async def run_capability(
             "project_id": context.project_id,
         },
     )
+    # 预检必须发生在预占积分之前：参考图不被当前模型支持时，一分钱都不该动。
+    if entry.preflight is not None:
+        rejection = await asyncio.to_thread(entry.preflight, validated, context)
+        if rejection:
+            logger.info(
+                "能力预检拒绝",
+                extra={
+                    "evt": "capability_preflight_rejected",
+                    "capability": capability_id,
+                    "source": context.source,
+                    "reason": rejection[:120],
+                },
+            )
+            return CapabilityResult(capability_id=capability_id, status="failed", error=rejection)
     # 计费钩子：reserve → 执行 → settle / release。任何时候计费代码出错都不许拖垮主链路，
     # 只在 enforce 模式下【积分不足 / 价格未配置】才拒绝执行（在接触上游 Provider 之前）。
     billing_mode = config.BILLING_MODE

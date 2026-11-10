@@ -52,6 +52,10 @@ KUNBOT_CHAT_BASE = os.getenv("KUNBOT_CHAT_BASE", "https://anthropic.kunbot.org/d
 KUNBOT_IMAGE_BASE = os.getenv("KUNBOT_IMAGE_BASE", "https://anthropic.kunbot.org/7sref/v1").strip()
 IMAGE_PROVIDER = os.getenv("IMAGE_PROVIDER", "siliconflow").strip()
 IMAGE_MODEL_KUNBOT = os.getenv("IMAGE_MODEL_KUNBOT", "OpenMOSS-Team/MOSS-Image-Base").strip()  # 7sref 唯一在岗
+# 图像 Provider 是否真能吃参考图（图生图）。2026-11-09 真机核对：kunbot 7sref 只开
+# /images/generations（/images/edits 返回 400），Kolors 亦无参考图入参，因此默认关闭。
+# 换成支持图生图的 Provider 时才置 1；UI 与预检都读这个开关。
+IMAGE_REFERENCE_SUPPORTED = os.getenv("IMAGE_REFERENCE_SUPPORTED", "0").strip() == "1"
 
 # 阿里百炼 DashScope（视频云端替补 + embedding 备胎）
 DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", "").strip()
@@ -72,6 +76,15 @@ VIDEO_PROVIDER = os.getenv("VIDEO_PROVIDER", "siliconflow").strip()
 COMFYUI_BASE_URL = os.getenv("COMFYUI_BASE_URL", "http://127.0.0.1:8188").strip()
 COMFYUI_TIMEOUT_SECONDS = int(os.getenv("COMFYUI_TIMEOUT_SECONDS", "600"))
 VIDEO_MODEL_COMFYUI = os.getenv("VIDEO_MODEL_COMFYUI", "LTX-Video-2B-distilled/local").strip()
+
+# 本地 ComfyUI 图像（2026-11-09 临时启用）：Illustrious-XL（SDXL 动漫底模）+ LoRA。
+# 模型名只用于账本/展示，不对外暴露路径；LoRA 可在 .env 里换或留空。
+IMAGE_MODEL_COMFYUI = os.getenv("IMAGE_MODEL_COMFYUI", "Illustrious-XL-v1.1/local").strip()
+IMAGE_LORA_COMFYUI = os.getenv("IMAGE_LORA_COMFYUI", "ILwatercolor.safetensors").strip()
+IMAGE_LORA_STRENGTH_COMFYUI = float(os.getenv("IMAGE_LORA_STRENGTH_COMFYUI", "0.8"))
+# Illustrious/SDXL 的 CLIP 只吃英文 tag：中文描述先用平台 LLM 翻成 Danbooru 风 tag
+# 再提交（本地进程无翻译模型；关掉就原样透传，质量会明显下降）。
+COMFYUI_IMAGE_TRANSLATE_PROMPT = os.getenv("COMFYUI_IMAGE_TRANSLATE_PROMPT", "1").strip() == "1"
 SILICONFLOW_API_KEY = os.getenv("SILICONFLOW_API_KEY", "").strip()
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3").strip()
 EMBEDDING_API_URL = os.getenv("EMBEDDING_API_URL", "https://api.siliconflow.cn/v1/embeddings").strip()

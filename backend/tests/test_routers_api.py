@@ -12,6 +12,8 @@ regenerate/edit 互斥校验顺序错误（4eeddb1）就是这样漏掉进主干
 """
 
 
+import base64
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -304,3 +306,69 @@ def test_capability_project_ownership_404(client, auth_headers):
 def test_assets_require_auth(client):
     resp = client.get("/api/assets/nonexistent.png")
     assert resp.status_code in (401, 403, 404)
+
+
+# ---------- 参考图上传/删除（图生图输入素材，2026-11-09） ----------
+
+_REF_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
+
+
+def test_reference_upload_roundtrip_and_ownership(client, auth_headers):
+    resp = client.post(
+        "/assets/reference",
+        files={"file": ("ref.png", _REF_PNG, "image/png")},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    payload = resp.json()
+    assert payload["asset_id"].startswith("asset-")
+    assert payload["byte_size"] == len(_REF_PNG)
+
+    with db_connection() as conn:
+        row = conn.execute(
+            "SELECT capability_id, kind, run_id FROM assets WHERE id=?",
+            (payload["asset_id"],),
+        ).fetchone()
+    assert row is not None
+    assert row[0] == "image.reference"  # 与生成产物 image.generate 区分
+    assert row[1] == "image"
+    assert row[2] is None  # 参考图不是某次运行的产物，不参与档案馆分组
+
+    # 缩略图走静态 GET（前端经 Vite 代理 /api → 后端 /assets；测试直连后端）
+    served = client.get(payload["path"].removeprefix("/api"))
+    assert served.status_code == 200
+    assert served.content == _REF_PNG
+
+    deleted = client.delete(f"/assets/reference/{payload['asset_id']}", headers=auth_headers)
+    assert deleted.status_code == 200
+    with db_connection() as conn:
+        assert conn.execute("SELECT 1 FROM assets WHERE id=?", (payload["asset_id"],)).fetchone() is None
+
+
+def test_reference_upload_rejects_non_image(client, auth_headers):
+    resp = client.post(
+        "/assets/reference",
+        files={"file": ("note.txt", b"hello", "text/plain")},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 415
+
+
+def test_reference_upload_requires_auth(client):
+    resp = client.post("/assets/reference", files={"file": ("ref.png", _REF_PNG, "image/png")})
+    assert resp.status_code in (401, 403)
+
+
+def test_reference_delete_unknown_404(client, auth_headers):
+    resp = client.delete("/assets/reference/asset-doesnotexist", headers=auth_headers)
+    assert resp.status_code == 404
+
+
+def test_capability_features_exposes_reference_support(client, auth_headers):
+    resp = client.get("/capabilities/image.generate/features", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["reference_limit"] == 3
+    assert resp.json()["reference_supported"] is False  # 当前 Provider 不支持图生图
+    assert client.get("/capabilities/nope/features", headers=auth_headers).status_code == 404

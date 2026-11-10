@@ -17,7 +17,7 @@
       <span>助手正在执行此 Workflow，画布暂不可编辑，运行结束后自动恢复。</span>
     </div>
 
-    <div class="workflow-mode-hint" aria-live="polite">
+    <div v-if="!isPanelOpen" class="workflow-mode-hint" aria-live="polite">
       <span class="workflow-mode-dot" :class="`is-${workflowStore.mode}`"></span>
       <strong>{{ modeLabel }}</strong>
       <span>{{ modeDescription }}</span>

@@ -42,6 +42,8 @@ _PRICES: dict[str, dict[str, Decimal | str]] = {
     # 本地 ComfyUI LTX-Video 自建算力：上游云端成本≈0（电费不入账）
     # 但显式记 0 而非 NULL——「上线过且成本为 0」与「未校准」是两种不同会计语义
     "LTX-Video-2B-distilled/local": {"kind": "per_call", "yuan": Decimal("0")},
+    # 本地 ComfyUI 图像（Illustrious-XL + LoRA）：同样是自建算力，上游成本记 0（电费不入账）
+    "Illustrious-XL-v1.1/local": {"kind": "per_call", "yuan": Decimal("0")},
 }
 
 

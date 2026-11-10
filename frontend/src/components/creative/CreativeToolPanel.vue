@@ -26,86 +26,38 @@
 
         <div class="panel-body" :class="{ 'is-running-locked': workflowStore.isRunning }">
           <div v-if="workflowStore.isRunning" class="panel-running-lock" role="status">
-            Workflow 运行中，参数暂不可修改，运行结束后自动恢复。
+            运行中：参数暂不可改，运行结束后结果自动刷新。
           </div>
+
+          <!-- 运行前摘要：左侧是订阅选模型的预留位（当前只展示平台默认，不可点），右侧回显最终规格 -->
+          <div class="run-summary" role="group" aria-label="运行前摘要">
+            <div class="summary-cell is-reserved" aria-disabled="true" title="当前使用平台默认模型">
+              <span class="summary-label">模型</span>
+              <span class="summary-value">平台默认</span>
+            </div>
+            <div class="summary-cell">
+              <span class="summary-label">输出规格</span>
+              <span class="summary-value">{{ outputSpec }}</span>
+            </div>
+          </div>
+          <p v-if="referenceWarning" class="summary-alert" role="status">{{ referenceWarning }}</p>
+
+          <!-- 主要输入：结构信息，压成一行，不占创作主轨道 -->
+          <div class="input-strip">
+            <span class="port-mark" aria-hidden="true">⇥</span>
+            <span class="input-strip-title">主要输入</span>
+            <strong class="input-strip-value">{{ mainInputSource ?? '未连接' }}</strong>
+            <span class="input-status" :class="{ 'is-linked': mainInputSource }">
+              {{ mainInputSource ? '已连接' : '等待连接' }}
+            </span>
+          </div>
+          <p class="input-strip-hint">{{ mainInputDetail }} · {{ mainInputHint(tool.type) }}</p>
+
+          <!-- 创作：用户真正要决定的东西 -->
           <section class="block">
             <header class="block-head">
-              <span>主要输入</span>
-              <small>来自输入节点或上一步结果</small>
-            </header>
-            <div class="main-input-card">
-              <span class="port-mark" aria-hidden="true">⇥</span>
-              <div class="main-input-copy">
-                <strong>{{ mainInputLabel }}</strong>
-                <small>{{ mainInputDetail }} · {{ mainInputHint(tool.type) }}</small>
-              </div>
-              <span class="input-status" :class="{ 'is-linked': mainInputSource }">
-                {{ mainInputSource ? '已连接' : '等待连接' }}
-              </span>
-            </div>
-          </section>
-
-          <section class="block">
-            <header class="block-head">
-              <span>补充参考</span>
-              <small>可选 · 不替换主要输入</small>
-            </header>
-
-            <div v-if="references.length" class="reference-list">
-              <div v-for="reference in references" :key="reference.id" class="reference-item">
-                <span class="reference-type" aria-hidden="true">{{
-                  reference.type === 'image' ? '▧' : 'Aa'
-                }}</span>
-                <span class="reference-copy">
-                  <strong>{{ reference.name }}</strong>
-                  <small>{{ reference.detail ?? '用户补充参考' }}</small>
-                </span>
-                <button
-                  type="button"
-                  class="reference-remove"
-                  :aria-label="`移除${reference.name}`"
-                  @click="removeReference(reference.id)"
-                >
-                  ×
-                </button>
-              </div>
-            </div>
-            <div v-else class="reference-empty">暂无参考，生成时可只使用主要输入。</div>
-
-            <div class="reference-actions">
-              <label class="ghost-btn">
-                <input
-                  type="file"
-                  accept="image/*,.txt,.md,.pdf,.wav,.mp3"
-                  @change="handleFileChange"
-                />
-                <span>＋ 图片 / 文件</span>
-              </label>
-              <button
-                type="button"
-                class="ghost-btn"
-                @click="textReferenceOpen = !textReferenceOpen"
-              >
-                ＋ 文本参考
-              </button>
-            </div>
-
-            <div v-if="textReferenceOpen" class="reference-form">
-              <textarea
-                v-model="textReference"
-                rows="2"
-                placeholder="输入风格、限制或画面补充说明"
-              ></textarea>
-              <button type="button" class="btn-secondary btn-small" @click="addTextReference">
-                添加
-              </button>
-            </div>
-          </section>
-
-          <section class="block">
-            <header class="block-head">
-              <span>生成参数</span>
-              <small>{{ tool.inputHint }}</small>
+              <span>创作</span>
+              <small>{{ creationHint }}</small>
             </header>
 
             <template v-if="tool.type === 'lyrics'">
@@ -159,7 +111,7 @@
                   type="text"
                   list="lyrics-mood-suggestions"
                   :value="tool.params.mood"
-                  placeholder="如：温柔免丶、忧郁狂欢、孤独怀旧…"
+                  placeholder="如：温柔克制、忧郁狂欢、孤独怀旧…"
                   maxlength="60"
                   @input="update('mood', $event)"
                 />
@@ -177,63 +129,29 @@
               <div class="field">
                 <span class="field-label">画面描述</span>
                 <textarea
-                  class="field-control field-textarea"
+                  class="field-control field-textarea field-textarea-lg"
                   :value="tool.params.prompt"
-                  rows="4"
-                  placeholder="输入画面描述，例如：雨夜霓虹下挂着工作灯的小店"
+                  rows="5"
+                  placeholder="写清主体、场景、光线、镜头与氛围，例如：雨夜霓虹下挂着工作灯的小店，胶片颗粒"
                   @input="update('prompt', $event)"
                 ></textarea>
               </div>
-              <div class="field-row">
-                <div class="field">
-                  <span class="field-label">视觉风格</span>
-                  <input
-                    class="field-control"
-                    type="text"
-                    list="image-style-suggestions"
-                    :value="tool.params.style"
-                    placeholder="如：电影概念艺术、抽象水墨、赛博朋克…"
-                    maxlength="80"
-                    @input="update('style', $event)"
-                  />
-                  <datalist id="image-style-suggestions">
-                    <option value="电影概念艺术"></option>
-                    <option value="二次元插画"></option>
-                    <option value="写实摄影"></option>
-                    <option value="复古胶片"></option>
-                  </datalist>
-                </div>
-                <div class="field">
-                  <span class="field-label">画面比例</span>
-                  <select
-                    class="field-control field-select"
-                    :value="tool.params.ratio"
-                    @change="update('ratio', $event)"
-                  >
-                    <option>16:9</option>
-                    <option>1:1</option>
-                    <option>9:16</option>
-                    <option>4:3</option>
-                  </select>
-                </div>
-              </div>
               <div class="field">
-                <span class="field-label">色彩方向</span>
+                <span class="field-label">视觉风格</span>
                 <input
                   class="field-control"
                   type="text"
-                  list="image-palette-suggestions"
-                  :value="tool.params.palette"
-                  placeholder="如：黑白、深蓝与紫色、暖金、酸橙…"
+                  list="image-style-suggestions"
+                  :value="tool.params.style"
+                  placeholder="如：电影概念艺术、抽象水墨、赛博朋克…"
                   maxlength="80"
-                  @input="update('palette', $event)"
+                  @input="update('style', $event)"
                 />
-                <datalist id="image-palette-suggestions">
-                  <option value="黑白"></option>
-                  <option value="深蓝与紫色"></option>
-                  <option value="暖金"></option>
-                  <option value="低饱和绿色"></option>
-                  <option value="高对比彩色"></option>
+                <datalist id="image-style-suggestions">
+                  <option value="电影概念艺术"></option>
+                  <option value="二次元插画"></option>
+                  <option value="写实摄影"></option>
+                  <option value="复古胶片"></option>
                 </datalist>
               </div>
             </template>
@@ -242,7 +160,7 @@
               <div class="field">
                 <span class="field-label">镜头描述</span>
                 <textarea
-                  class="field-control field-textarea"
+                  class="field-control field-textarea field-textarea-lg"
                   :value="tool.params.prompt"
                   rows="4"
                   placeholder="描述镜头运动和画面节奏，例如：镜头缓慢推进穿过雨夜的城市街道"
@@ -257,7 +175,7 @@
                     type="text"
                     list="video-style-suggestions"
                     :value="tool.params.style"
-                    placeholder="如：电影写实、二手拉机械功、二次元动画…"
+                    placeholder="如：电影写实、二手拉机械感、二次元动画…"
                     maxlength="80"
                     @input="update('style', $event)"
                   />
@@ -269,28 +187,16 @@
                   </datalist>
                 </div>
                 <div class="field">
-                  <span class="field-label">画面比例</span>
+                  <span class="field-label">时长</span>
                   <select
                     class="field-control field-select"
-                    :value="tool.params.ratio"
-                    @change="update('ratio', $event)"
+                    :value="tool.params.duration"
+                    @change="update('duration', $event)"
                   >
-                    <option>16:9</option>
-                    <option>1:1</option>
-                    <option>9:16</option>
+                    <option>5 秒</option>
+                    <option>10 秒</option>
                   </select>
                 </div>
-              </div>
-              <div class="field">
-                <span class="field-label">时长</span>
-                <select
-                  class="field-control field-select"
-                  :value="tool.params.duration"
-                  @change="update('duration', $event)"
-                >
-                  <option>5 秒</option>
-                  <option>10 秒</option>
-                </select>
               </div>
             </template>
 
@@ -302,25 +208,25 @@
                   <button
                     type="button"
                     class="ghost-btn btn-inline"
-                    @click="updateValue('source', 'demo-audio-input.wav')"
+                    @click="setParam('source', 'demo-audio-input.wav')"
                   >
                     选择文件
                   </button>
                 </div>
               </div>
-              <div class="field">
-                <span class="field-label">分析特征</span>
-                <select
-                  class="field-control field-select"
-                  :value="tool.params.feature"
-                  @change="update('feature', $event)"
-                >
-                  <option>频段与波形质感</option>
-                  <option>节奏与动态</option>
-                  <option>音色与空间感</option>
-                </select>
-              </div>
               <div class="field-row">
+                <div class="field">
+                  <span class="field-label">分析特征</span>
+                  <select
+                    class="field-control field-select"
+                    :value="tool.params.feature"
+                    @change="update('feature', $event)"
+                  >
+                    <option>频段与波形质感</option>
+                    <option>节奏与动态</option>
+                    <option>音色与空间感</option>
+                  </select>
+                </div>
                 <div class="field">
                   <span class="field-label">生成强度</span>
                   <select
@@ -333,6 +239,84 @@
                     <option>强烈</option>
                   </select>
                 </div>
+              </div>
+            </template>
+          </section>
+
+          <!-- 更多设置：低频项收进折叠层，折叠态给出摘要（对应渐进式披露） -->
+          <section class="block block-advanced">
+            <button
+              type="button"
+              class="advanced-toggle"
+              :aria-expanded="advancedOpen"
+              @click="advancedOpen = !advancedOpen"
+            >
+              <span class="advanced-title">更多设置</span>
+              <span class="advanced-summary">{{ advancedSummary }}</span>
+              <span class="advanced-caret" aria-hidden="true">{{ advancedOpen ? '▴' : '▾' }}</span>
+            </button>
+
+            <div v-if="advancedOpen" class="advanced-body">
+              <template v-if="tool.type === 'image'">
+                <div class="field">
+                  <span class="field-label">画面比例</span>
+                  <div class="ratio-row" role="group" aria-label="画面比例">
+                    <button
+                      v-for="item in imageRatios"
+                      :key="item.value"
+                      type="button"
+                      class="ratio-btn"
+                      :class="{ 'is-active': tool.params.ratio === item.value }"
+                      :aria-pressed="tool.params.ratio === item.value"
+                      @click="setParam('ratio', item.value)"
+                    >
+                      {{ item.label }}
+                    </button>
+                  </div>
+                  <p class="field-note">{{ ratioNote }}</p>
+                </div>
+                <div class="field">
+                  <span class="field-label">色彩方向</span>
+                  <input
+                    class="field-control"
+                    type="text"
+                    list="image-palette-suggestions"
+                    :value="tool.params.palette"
+                    placeholder="如：黑白、深蓝与紫色、暖金、酸橙…"
+                    maxlength="80"
+                    @input="update('palette', $event)"
+                  />
+                  <datalist id="image-palette-suggestions">
+                    <option value="黑白"></option>
+                    <option value="深蓝与紫色"></option>
+                    <option value="暖金"></option>
+                    <option value="低饱和绿色"></option>
+                    <option value="高对比彩色"></option>
+                  </datalist>
+                </div>
+              </template>
+
+              <template v-else-if="tool.type === 'video'">
+                <div class="field">
+                  <span class="field-label">画面比例</span>
+                  <div class="ratio-row" role="group" aria-label="画面比例">
+                    <button
+                      v-for="item in videoRatios"
+                      :key="item.value"
+                      type="button"
+                      class="ratio-btn"
+                      :class="{ 'is-active': tool.params.ratio === item.value }"
+                      :aria-pressed="tool.params.ratio === item.value"
+                      @click="setParam('ratio', item.value)"
+                    >
+                      {{ item.label }}
+                    </button>
+                  </div>
+                  <p class="field-note">画幅与时长共同决定成片尺寸与费用。</p>
+                </div>
+              </template>
+
+              <template v-else-if="tool.type === 'audio'">
                 <div class="field">
                   <span class="field-label">节奏处理</span>
                   <select
@@ -345,98 +329,154 @@
                     <option>重新编排</option>
                   </select>
                 </div>
+              </template>
+
+              <div class="field">
+                <span class="field-label">{{ referenceTitle }}</span>
+                <p v-if="tool.type === 'image'" class="field-note">{{ referenceNote }}</p>
+                <p v-else class="field-note">参考文件只保存在本地，暂不参与生成。</p>
+
+                <div v-if="references.length" class="reference-grid">
+                  <figure
+                    v-for="reference in references"
+                    :key="reference.id"
+                    class="reference-thumb"
+                  >
+                    <img v-if="reference.url" :src="reference.url" :alt="reference.name" />
+                    <span v-else class="reference-thumb-glyph" aria-hidden="true">{{
+                      reference.type === 'image' ? '▧' : 'Aa'
+                    }}</span>
+                    <figcaption>{{ reference.name }}</figcaption>
+                    <button
+                      type="button"
+                      class="reference-remove"
+                      :aria-label="`移除${reference.name}`"
+                      @click="removeReference(reference.id)"
+                    >
+                      ×
+                    </button>
+                  </figure>
+                </div>
+                <p v-else class="reference-empty">暂无参考。</p>
+
+                <div class="reference-actions">
+                  <label class="ghost-btn" :class="{ 'is-disabled': referenceLimitReached }">
+                    <input
+                      type="file"
+                      :accept="referenceAccept"
+                      :multiple="tool.type === 'image'"
+                      :disabled="referenceLimitReached || uploadingReference"
+                      @change="handleFileChange"
+                    />
+                    <span>{{ referenceUploadLabel }}</span>
+                  </label>
+                  <button
+                    v-if="tool.type !== 'image'"
+                    type="button"
+                    class="ghost-btn"
+                    @click="textReferenceOpen = !textReferenceOpen"
+                  >
+                    ＋ 文本备注
+                  </button>
+                </div>
+
+                <div v-if="textReferenceOpen && tool.type !== 'image'" class="reference-form">
+                  <textarea
+                    v-model="textReference"
+                    rows="2"
+                    placeholder="输入风格、限制或画面补充说明"
+                  ></textarea>
+                  <button type="button" class="btn-secondary btn-small" @click="addTextReference">
+                    添加
+                  </button>
+                </div>
               </div>
-            </template>
+            </div>
           </section>
 
-          <div class="output-note">
-            <span class="port-mark" aria-hidden="true">⇥</span>
-            <div>
-              <strong>输出接口</strong>
-              <small>生成结果写入当前节点，可被下游节点引用</small>
-            </div>
-          </div>
-
-          <section v-if="candidates.length" class="block candidate-block">
-            <header class="candidate-head">
-              <span>候选版本</span>
-              <small>手动选定一张，下游节点才会用它</small>
+          <!-- 产出：一个权威展示位，候选改为缩略图 -->
+          <section class="block output-block">
+            <header class="block-head">
+              <span>产出</span>
+              <small>{{ outputStatusText }}</small>
             </header>
-            <div
-              v-for="candidate in [...candidates].reverse()"
-              :key="candidate.id"
-              class="candidate-item"
-              :class="{ 'is-selected': candidate.id === selectedCandidateId }"
+
+            <div v-if="failureText" class="output-error" role="alert">{{ failureText }}</div>
+
+            <div v-if="resultAssetUrl" class="output-preview">
+              <img v-if="tool.type === 'image'" :src="resultAssetUrl" alt="生成结果" />
+              <video
+                v-else-if="tool.type === 'video'"
+                :src="resultAssetUrl"
+                controls
+                preload="metadata"
+              ></video>
+              <pre v-else class="output-text">{{ toolRun?.content }}</pre>
+            </div>
+
+            <div v-if="imageCandidates.length" class="candidate-grid">
+              <button
+                v-for="candidate in imageCandidates"
+                :key="candidate.id"
+                type="button"
+                class="candidate-thumb"
+                :class="{ 'is-selected': candidate.id === selectedCandidateId }"
+                :aria-pressed="candidate.id === selectedCandidateId"
+                @click="selectCandidate(candidate.id)"
+              >
+                <img :src="candidate.url" :alt="`候选图 ${candidate.id}`" />
+                <span class="candidate-flag">{{
+                  candidate.id === selectedCandidateId ? '正在使用' : '用作下游'
+                }}</span>
+              </button>
+            </div>
+
+            <div v-else-if="textCandidates.length" class="candidate-list">
+              <div
+                v-for="candidate in textCandidates"
+                :key="candidate.id"
+                class="candidate-item"
+                :class="{ 'is-selected': candidate.id === selectedCandidateId }"
+              >
+                <div class="candidate-top">
+                  <span class="candidate-status" :class="`is-${candidate.status}`">
+                    {{ candidateStatusLabel(candidate.status) }}
+                  </span>
+                  <button
+                    type="button"
+                    class="candidate-select ghost-btn"
+                    :disabled="candidate.id === selectedCandidateId"
+                    @click="selectCandidate(candidate.id)"
+                  >
+                    {{ candidate.id === selectedCandidateId ? '正在使用' : '用作下游输入' }}
+                  </button>
+                </div>
+                <pre class="candidate-snippet">{{
+                  candidate.content ? preview(candidate.content) : candidate.error || '未生成'
+                }}</pre>
+              </div>
+            </div>
+
+            <p v-if="!hasAnyOutput" class="output-empty">
+              还没有产出 · 在顶部点击「运行工作流」后出现在这里
+            </p>
+
+            <button
+              v-if="hasAnyOutput"
+              type="button"
+              class="output-archive"
+              @click="emit('open-archive')"
             >
-              <div class="candidate-top">
-                <span class="candidate-status" :class="`is-${candidate.status}`">
-                  {{ candidateStatusLabel(candidate.status) }}
-                </span>
-                <button
-                  type="button"
-                  class="candidate-select ghost-btn"
-                  :disabled="candidate.id === selectedCandidateId"
-                  @click="selectCandidate(candidate.id)"
-                >
-                  {{ candidate.id === selectedCandidateId ? '正在使用' : '用作下游输入' }}
-                </button>
-              </div>
-              <pre class="candidate-snippet">{{
-                candidate.content ? preview(candidate.content) : candidate.error || '未生成'
-              }}</pre>
-            </div>
-          </section>
-
-          <section
-            v-if="runnableTool && toolRun?.status === 'succeeded' && tool.type === 'lyrics'"
-            class="block result-block"
-          >
-            <header class="result-head">
-              <span>歌词生成结果</span>
-              <span class="result-meta">最新一次运行</span>
-            </header>
-            <pre class="result-content">{{ toolRun.content }}</pre>
-          </section>
-          <section
-            v-else-if="runnableTool && toolRun?.status === 'succeeded' && tool.type === 'image'"
-            class="block result-block"
-          >
-            <header class="result-head">
-              <span>图像生成结果</span>
-              <span class="result-meta">最新一次运行</span>
-            </header>
-            <img v-if="imageResultUrl" class="result-image" :src="imageResultUrl" alt="生成图" />
-            <pre v-else class="result-content">{{ toolRun.content }}</pre>
-          </section>
-          <section
-            v-else-if="runnableTool && toolRun?.status === 'succeeded' && tool.type === 'video'"
-            class="block result-block"
-          >
-            <header class="result-head">
-              <span>视频生成结果</span>
-              <span class="result-meta">最新一次运行</span>
-            </header>
-            <video
-              v-if="videoResultUrl"
-              class="result-video"
-              :src="videoResultUrl"
-              controls
-              preload="metadata"
-            ></video>
-            <pre v-else class="result-content">{{ toolRun.content }}</pre>
-          </section>
-          <section
-            v-else-if="runnableTool && toolRun && toolRun.status !== 'running'"
-            class="block error-block"
-          >
-            {{ toolRun.error ?? generationFailureText }}
+              在档案馆中查看 →
+            </button>
           </section>
         </div>
 
         <footer class="panel-foot">
-          <!-- WF1-③：块级运行按钮已下线——运行是画布级动作（顶部「运行工作流」带费用预览），
-               避免同一链被重复点火、也挡不住局部运行与全局缓存语义的冲突。 -->
-          <span class="foot-hint">参数会自动保存；点顶部「运行工作流」开始生成</span>
+          <!-- WF1-③：块级运行按钮已下线——运行是画布级动作（顶部「运行工作流」带费用预览）。
+               2026-11-09：提示按状态变化（就绪/将重跑/运行中/配置不全），但依然只是引导，
+               面板内不出现任何运行动作。 -->
+          <span class="foot-hint" :class="{ 'is-warning': footHintWarning }">{{ footHint }}</span>
           <div class="foot-actions">
             <button type="button" class="btn-secondary" @click="saveAndClose">保存参数</button>
           </div>
@@ -452,18 +492,45 @@ import { ElMessage } from '@/utils/toast'
 import { useCreativeToolsStore } from '@/stores/creativeTools'
 import { useToolRunsStore } from '@/stores/toolRuns'
 import { useWorkflowStore, WORKFLOW_INPUT_ID } from '@/stores/workflow'
+import { useProjectStore } from '@/stores/project'
+import {
+  deleteReferenceImage,
+  getCapabilityFeatures,
+  uploadReferenceImage,
+  type CapabilityFeatures,
+} from '@/serve/reference'
 
-const emit = defineEmits<{ (event: 'close'): void }>()
+const emit = defineEmits<{ (event: 'close'): void; (event: 'open-archive'): void }>()
 const creativeToolsStore = useCreativeToolsStore()
 const workflowStore = useWorkflowStore()
 const toolRunsStore = useToolRunsStore()
+const projectStore = useProjectStore()
+
 const tool = computed(() => creativeToolsStore.activePanelTool)
 const references = computed(() => tool.value?.references ?? [])
 const toolRun = computed(() => (tool.value ? (toolRunsStore.records[tool.value.id] ?? null) : null))
-const runnableTool = computed(
-  () =>
-    tool.value?.type === 'lyrics' || tool.value?.type === 'image' || tool.value?.type === 'video',
-)
+
+const DEFAULT_REFERENCE_LIMIT = 3
+// 兜底尺寸（后端 features 拿不到时用）；真实映射由 /capabilities/{id}/features 提供，
+// 不同 Provider（本地 ComfyUI / kunbot / siliconflow）尺寸各不相同，不能写死。
+const FALLBACK_RATIO_SIZES: Record<string, string> = {
+  '16:9': '1344×768',
+  '1:1': '1024×1024',
+  '9:16': '768×1344',
+  '4:3': '1152×864',
+}
+const imageRatios = [
+  { value: '16:9', label: '16:9' },
+  { value: '1:1', label: '1:1' },
+  { value: '9:16', label: '9:16' },
+  { value: '4:3', label: '4:3' },
+]
+const videoRatios = [
+  { value: '16:9', label: '16:9' },
+  { value: '1:1', label: '1:1' },
+  { value: '9:16', label: '9:16' },
+]
+
 const generationFailureText = computed(() =>
   tool.value?.type === 'image'
     ? '图像模型尚未配置，请稍后再试'
@@ -471,6 +538,7 @@ const generationFailureText = computed(() =>
       ? '视频模型尚未配置或生成超时，请稍后再试'
       : '歌词生成失败，请稍后重试',
 )
+
 const mainInputSource = computed(() => {
   const nodeId = tool.value
     ? (workflowStore.nodes.find((candidate) => candidate.toolId === tool.value!.id)?.id ?? null)
@@ -485,15 +553,175 @@ const currentNode = computed(() =>
 )
 const candidates = computed(() => currentNode.value?.candidates ?? [])
 const selectedCandidateId = computed(() => currentNode.value?.selectedCandidateId ?? null)
-const mainInputLabel = computed(() => mainInputSource.value ?? '等待连接')
 const mainInputDetail = computed(() =>
   mainInputSource.value
-    ? '连接建立后，将接收上一步选中的单个生产结果'
-    : '请从输入节点或上一步工具的输出插孔建立连接',
+    ? '连接建立后，接收上一步选中的单个生产结果'
+    : '从输入节点或上一步工具的输出插孔建立连接',
 )
+
 const panelRef = ref<HTMLElement | null>(null)
 const textReferenceOpen = ref(false)
 const textReference = ref('')
+const advancedOpen = ref(false)
+const uploadingReference = ref(false)
+const features = ref<CapabilityFeatures | null>(null)
+
+const isImage = computed(() => tool.value?.type === 'image')
+const referenceLimit = computed(() =>
+  isImage.value ? (features.value?.reference_limit ?? DEFAULT_REFERENCE_LIMIT) : 99,
+)
+const imageReferences = computed(() =>
+  references.value.filter((reference) => reference.type === 'image' && reference.assetId),
+)
+const referenceSupported = computed(() => features.value?.reference_supported ?? false)
+const referenceLimitReached = computed(
+  () =>
+    isImage.value &&
+    !uploadingReference.value &&
+    imageReferences.value.length >= referenceLimit.value,
+)
+const referenceWarning = computed(() =>
+  isImage.value && imageReferences.value.length > 0 && !referenceSupported.value
+    ? '当前模型不支持参考图：累积的参考图会让本次运行被拒绝，请先移除。'
+    : null,
+)
+const referenceTitle = computed(() => (isImage.value ? '参考图' : '参考文件'))
+const referenceNote = computed(() =>
+  referenceSupported.value
+    ? `参考图会随本次生成一并发送（最多 ${referenceLimit.value} 张）。`
+    : '当前模型不支持图生图：带着参考图运行时会被拒绝（不扣积分），移除后才能跑。',
+)
+const referenceAccept = computed(() =>
+  isImage.value ? 'image/png,image/jpeg,image/webp' : 'image/*,.txt,.md,.pdf,.wav,.mp3',
+)
+const referenceUploadLabel = computed(() => {
+  if (uploadingReference.value) return '上传中…'
+  if (referenceLimitReached.value) return `已达上限 ${referenceLimit.value} 张`
+  return isImage.value ? '＋ 上传参考图' : '＋ 图片 / 文件'
+})
+
+const ratioSizes = computed<Record<string, string>>(
+  () => features.value?.ratio_sizes ?? FALLBACK_RATIO_SIZES,
+)
+const outputSpec = computed(() => {
+  if (!tool.value) return '—'
+  if (tool.value.type === 'image') {
+    return `${tool.value.params.ratio} · ${ratioSizes.value[tool.value.params.ratio] ?? '自动'}`
+  }
+  if (tool.value.type === 'video')
+    return `${tool.value.params.ratio} · ${tool.value.params.duration}`
+  return tool.value.type === 'lyrics' ? '文本' : '音频'
+})
+const ratioNote = computed(() => {
+  const ratio = tool.value?.params.ratio ?? '16:9'
+  const size = ratioSizes.value[ratio] ?? '自动'
+  return `${ratio} 映射到当前模型的实际出图尺寸 ${size}；比例变化不会切图。`
+})
+const creationHint = computed(
+  () =>
+    ({
+      lyrics: '主题 + 曲风 + 情绪',
+      image: '写清主体、场景、光线与镜头',
+      video: '写清镜头运动与节奏',
+      audio: '选音频并指定分析维度',
+    })[tool.value?.type ?? 'lyrics'] ?? '',
+)
+const advancedSummary = computed(() => {
+  if (!tool.value) return ''
+  const params = tool.value.params
+  if (tool.value.type === 'image') {
+    const refs = imageReferences.value.length
+    return `${params.ratio} · ${params.palette || '未设色调'} · ${refs ? `参考图 ${refs} 张` : '无参考图'}`
+  }
+  if (tool.value.type === 'video') return `${params.ratio} · ${params.duration}`
+  if (tool.value.type === 'audio') return params.variation
+  return references.value.length ? `参考 ${references.value.length} 项` : '无附加项'
+})
+
+const imageResultUrl = computed(() => {
+  const content = toolRun.value?.content
+  if (!content) return null
+  const match = content.match(/!\[[^\]]*\]\(([^)]+\.(?:png|jpg|jpeg|webp))\)/i)
+  return match?.[1] ?? null
+})
+const videoResultUrl = computed(() => {
+  const content = toolRun.value?.content
+  if (!content) return null
+  const match = content.match(/!\[[^\]]*\]\(([^)]+\.mp4)\)/)
+  return match?.[1] ?? null
+})
+const resultAssetUrl = computed(() =>
+  tool.value?.type === 'video' ? videoResultUrl.value : imageResultUrl.value,
+)
+
+function candidateImageUrl(content: string | null | undefined) {
+  if (!content) return null
+  const match = content.match(/!\[[^\]]*\]\(([^)]+\.(?:png|jpg|jpeg|webp))\)/i)
+  return match?.[1] ?? null
+}
+const imageCandidates = computed(() =>
+  isImage.value
+    ? candidates.value
+        .map((candidate) => ({
+          id: candidate.id,
+          status: candidate.status,
+          url: candidateImageUrl(candidate.content),
+        }))
+        .filter((candidate): candidate is { id: string; status: string; url: string } =>
+          Boolean(candidate.url),
+        )
+    : [],
+)
+const textCandidates = computed(() =>
+  candidates.value.filter((candidate) => !candidateImageUrl(candidate.content)),
+)
+const hasAnyOutput = computed(() => Boolean(resultAssetUrl.value) || candidates.value.length > 0)
+const outputStatusText = computed(() => {
+  if (workflowStore.isRunning) return '运行中…'
+  const status = toolRun.value?.status
+  if (status === 'succeeded') return '最近一次运行 · 成功'
+  if (status === 'failed') return '最近一次运行 · 失败'
+  if (status === 'model_unavailable') return '模型尚未配置'
+  return '尚未运行'
+})
+const failureText = computed(() => {
+  if (workflowStore.isRunning) return null
+  const run = toolRun.value
+  if (!run) return null
+  if (run.status === 'failed' || run.status === 'model_unavailable') {
+    return run.error ?? generationFailureText.value
+  }
+  return null
+})
+
+const promptMissing = computed(() => {
+  const type = tool.value?.type
+  if (type !== 'image' && type !== 'video') return false
+  return !String(tool.value?.params.prompt ?? '').trim()
+})
+const footHint = computed(() => {
+  if (workflowStore.isRunning) return '运行中，参数暂不可改；结束后结果自动刷新'
+  if (referenceWarning.value) return '参考图不受当前模型支持 · 移除后才能运行'
+  if (promptMissing.value) return '画面描述为空 · 运行会直接失败，补完再点顶部运行'
+  if (toolRun.value?.status === 'succeeded') {
+    return '参数已自动保存 · 改了参数点顶部「运行工作流」会重跑本块'
+  }
+  return '参数已自动保存 · 点顶部「运行工作流」开始生成'
+})
+const footHintWarning = computed(() => Boolean(referenceWarning.value) || promptMissing.value)
+
+async function loadFeatures() {
+  if (!isImage.value) {
+    features.value = null
+    return
+  }
+  try {
+    features.value = await getCapabilityFeatures('image.generate')
+  } catch {
+    // 拿不到能力描述时按「不支持参考图」保守处理：宁可提前警告，不要传完才发现
+    features.value = null
+  }
+}
 
 watch(
   () => tool.value?.id,
@@ -502,13 +730,14 @@ watch(
     textReference.value = ''
   },
 )
+watch(() => tool.value?.type, loadFeatures, { immediate: true })
 
 function update(key: string, event: Event) {
   const target = event.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
   if (tool.value) creativeToolsStore.updateParam(tool.value.id, key, target.value)
 }
 
-function updateValue(key: string, value: string) {
+function setParam(key: string, value: string) {
   if (tool.value) creativeToolsStore.updateParam(tool.value.id, key, value)
 }
 
@@ -519,22 +748,6 @@ function candidateStatusLabel(status: string) {
 function preview(content: string) {
   return content.length > 280 ? `${content.slice(0, 280)}…` : content
 }
-
-// 图像结果以 markdown 图片行回传（![alt](/api/assets/xxx.png)），应直接显示为图片
-const imageResultUrl = computed(() => {
-  const content = toolRun.value?.content
-  if (!content) return null
-  const match = content.match(/!\[[^\]]*\]\(([^)]+)\)/)
-  return match?.[1] ?? null
-})
-
-// 视频结果同样以 markdown 行回传（![视频](/api/assets/xxx.mp4)），渲染为 <video>
-const videoResultUrl = computed(() => {
-  const content = toolRun.value?.content
-  if (!content) return null
-  const match = content.match(/!\[[^\]]*\]\(([^)]+\.mp4)\)/)
-  return match?.[1] ?? null
-})
 
 function selectCandidate(candidateId: string) {
   if (!currentNode.value) return
@@ -553,17 +766,45 @@ function mainInputHint(type: string) {
   )
 }
 
-function handleFileChange(event: Event) {
+async function handleFileChange(event: Event) {
   const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file || !tool.value) return
-  const type = file.type.startsWith('image/') ? 'image' : 'file'
-  creativeToolsStore.addReference(tool.value.id, {
-    type,
+  const selected = Array.from(input.files ?? [])
+  input.value = ''
+  if (!tool.value || selected.length === 0) return
+  const toolId = tool.value.id
+
+  if (isImage.value) {
+    const room = Math.max(0, referenceLimit.value - imageReferences.value.length)
+    if (selected.length > room) ElMessage.warning(`参考图最多 ${referenceLimit.value} 张`)
+    const accepted = selected.slice(0, room)
+    if (accepted.length === 0) return
+    uploadingReference.value = true
+    try {
+      for (const file of accepted) {
+        const asset = await uploadReferenceImage(file, projectStore.id)
+        creativeToolsStore.addReference(toolId, {
+          type: 'image',
+          name: file.name,
+          detail: `${Math.ceil(asset.byte_size / 1024)} KB · 已上传`,
+          assetId: asset.asset_id,
+          url: asset.path,
+        })
+      }
+    } catch {
+      // 传输层已弹错误提示；这里只要不把半截状态写进实例
+    } finally {
+      uploadingReference.value = false
+    }
+    return
+  }
+
+  // 非图像块：沿用本地备注行为（面板文案已说明不参与生成）
+  const file = selected[0]
+  creativeToolsStore.addReference(toolId, {
+    type: file.type.startsWith('image/') ? 'image' : 'file',
     name: file.name,
     detail: `${Math.ceil(file.size / 1024)} KB · 本地参考文件`,
   })
-  input.value = ''
 }
 
 function addTextReference() {
@@ -572,14 +813,23 @@ function addTextReference() {
   creativeToolsStore.addReference(tool.value.id, {
     type: 'text',
     name: value.length > 24 ? `${value.slice(0, 24)}…` : value,
-    detail: '用户输入的文本参考',
+    detail: '本地文本备注，不参与生成',
   })
   textReference.value = ''
   textReferenceOpen.value = false
 }
 
-function removeReference(referenceId: string) {
-  if (tool.value) creativeToolsStore.removeReference(tool.value.id, referenceId)
+async function removeReference(referenceId: string) {
+  if (!tool.value) return
+  const target = references.value.find((reference) => reference.id === referenceId)
+  creativeToolsStore.removeReference(tool.value.id, referenceId)
+  if (target?.assetId) {
+    try {
+      await deleteReferenceImage(target.assetId)
+    } catch {
+      // 资产已经在服务端消失也算移除成功：本地引用先断开更重要
+    }
+  }
 }
 
 function saveAndClose() {
@@ -1232,6 +1482,367 @@ function artMark(type: string) {
 .foot-hint {
   color: #797979;
   font-size: 11.5px;
+}
+
+.foot-hint.is-warning {
+  color: #e4e4e4;
+}
+
+/* ============ 运行前摘要（模型预留位 + 输出规格回显） ============ */
+
+.run-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.summary-cell {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+/* 订阅选模型的预留位：虚线表示「位置已留、当前不可交互」，不画成能点的下拉 */
+.summary-cell.is-reserved {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.16);
+  background: transparent;
+  cursor: default;
+}
+
+.summary-label {
+  color: #7c7c7c;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+.summary-value {
+  overflow: hidden;
+  color: #ededed;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.summary-cell.is-reserved .summary-value {
+  color: #bdbdbd;
+  font-weight: 500;
+}
+
+.summary-alert {
+  margin: -6px 0 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #dedede;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+/* ============ 主要输入：一行状态 ============ */
+
+.input-strip {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.input-strip-title {
+  color: #7f7f7f;
+  font-size: 11px;
+}
+
+.input-strip-value {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: #e6e6e6;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.input-strip-hint {
+  margin: -8px 0 0;
+  padding-left: 2px;
+  color: #707070;
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+/* ============ 更多设置（折叠） ============ */
+
+.block-advanced {
+  padding: 0;
+}
+
+.advanced-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.advanced-title {
+  color: #d7d7d7;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.advanced-summary {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: #7c7c7c;
+  font-size: 11px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.advanced-caret {
+  color: #9a9a9a;
+  font-size: 11px;
+}
+
+.advanced-toggle:hover .advanced-title {
+  color: #fff;
+}
+
+.advanced-body {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  padding: 13px 14px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.field-note {
+  margin: 5px 0 0;
+  color: #7a7a7a;
+  font-size: 10.5px;
+  line-height: 1.55;
+}
+
+/* ============ 比例分段控件 ============ */
+
+.ratio-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ratio-btn {
+  min-width: 56px;
+  flex: 1 1 0;
+  padding: 7px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #a8a8a8;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.ratio-btn:hover {
+  border-color: rgba(255, 255, 255, 0.24);
+  color: #e8e8e8;
+}
+
+.ratio-btn.is-active {
+  border-color: rgba(255, 255, 255, 0.42);
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* ============ 参考图（真实上传 + 缩略图） ============ */
+
+.reference-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.reference-thumb {
+  position: relative;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 9px;
+  background: #0b0b0b;
+}
+
+/* 用户素材属于「内容」，不进灰度滤镜（CLAUDE.md 单色法只管 UI 板块） */
+.reference-thumb img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+}
+
+.reference-thumb-glyph {
+  display: grid;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  place-items: center;
+  color: #bdbdbd;
+  font-size: 18px;
+}
+
+.reference-thumb figcaption {
+  overflow: hidden;
+  padding: 5px 7px;
+  color: #9a9a9a;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reference-thumb .reference-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: rgba(0, 0, 0, 0.66) !important;
+}
+
+.reference-empty {
+  margin: 0 0 9px;
+  color: #707070;
+  font-size: 11px;
+}
+
+.ghost-btn.is-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/* ============ 产出 ============ */
+
+.output-preview {
+  margin-bottom: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: #080808;
+}
+
+.output-preview img,
+.output-preview video {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.output-text {
+  max-height: 220px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  color: #d0d0d0;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.output-error {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #ededed;
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.output-empty {
+  margin: 0;
+  padding: 16px 0 2px;
+  color: #6f6f6f;
+  font-size: 11.5px;
+  text-align: center;
+}
+
+.candidate-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.candidate-thumb {
+  position: relative;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 9px;
+  background: #0b0b0b;
+  cursor: pointer;
+}
+
+.candidate-thumb img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+}
+
+.candidate-thumb.is-selected {
+  border-color: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+
+.candidate-flag {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  padding: 4px 6px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #dcdcdc;
+  font-size: 9.5px;
+}
+
+.candidate-thumb.is-selected .candidate-flag {
+  color: #fff;
+  font-weight: 600;
+}
+
+.output-archive {
+  padding: 7px 0;
+  border: 0;
+  background: transparent;
+  color: #b9b9b9;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.output-archive:hover {
+  color: #fff;
+  text-decoration: underline;
 }
 
 .foot-actions {

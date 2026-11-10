@@ -40,8 +40,8 @@ Neyria 是一个**平台托管模型的 AI 创作工作台**：注册用户开�
 
 | 维度 | 现状 |
 | --- | --- |
-| 真实生产链 | 歌词→曲绘→图生视频（I2V）全链真机 E2E：云端 LLM 写词（Kunbot/智谱双路由热插拔）→ MOSS/Kolors 图像双 Provider → **本地 ComfyUI（LTX-Video 2B）图生视频 21s 出片**，云端/本地算力在同一 Capability Runtime 与账本里，本地产物成本显式记 0；签名缓存保证参数未变零计费零调用 |
-| 后端测试 | pytest 467 用例全绿（service 层 + 挂真 main.app 的 routers 接线层）+ 覆盖率 gate（实测 82%，fail_under=75，CI 强制） |
+| 真实生产链 | 歌词→曲绘→图生视频（I2V）全链真机 E2E：云端 LLM 写词（Kunbot/智谱双路由热插拔）→ MOSS/Kolors 图像双 Provider（另有本地 ComfyUI Illustrious 临时通道 `IMAGE_PROVIDER=comfyui`） → **本地 ComfyUI（LTX-Video 2B）图生视频 21s 出片**，云端/本地算力在同一 Capability Runtime 与账本里，本地产物成本显式记 0；签名缓存保证参数未变零计费零调用 |
+| 后端测试 | pytest 488 用例全绿（service 层 + 挂真 main.app 的 routers 接线层）+ 覆盖率 gate（实测 82%，fail_under=75，CI 强制） |
 | 前端测试 | Vitest 81 用例 |
 | 意图评测 | 30/33 基线（搭链/运行/状态追问场景） |
 | RAG 召回率 | Recall@1=0.9167 / 越界零命中 1.0（8 篇音乐文档评测集，可复现脚本 `backend/scripts/eval_rag.py`） |
@@ -59,7 +59,7 @@ Neyria 是一个**平台托管模型的 AI 创作工作台**：注册用户开�
 </p>
 
 - **ReAct 编排器**（`backend/services/chat/`）：SSE 流式输出；按 index 聚合多 tool_calls，结果回填后模型可继续要工具，最多 5 轮；
-- **Capability Runtime**（`backend/services/capabilities/`）：生产工具的唯一实现处——Chat Assistant、用户直接使用、Workflow 节点共用同一运行时；歌词走智谱 GLM/Kunbot 网关（`LLM_PROVIDER` 热插拔）、图像走 SiliconFlow Kolors/Kunbot MOSS（`IMAGE_PROVIDER`）、视频走**本地 ComfyUI LTX-Video / SiliconFlow Wan2.2 / 阿里百炼 wan turbo+flash**（`VIDEO_PROVIDER`，含图生视频 I2V：画布连线/助手链尾续接自动识别）、检索 embedding 走 BGE-M3 / 百炼 `text-embedding-v4`（`EMBEDDING_PROVIDER` 备胎）；整个运行时还经 **MCP 协议**（`POST /mcp`）向外部 Agent 开放同一套工具；
+- **Capability Runtime**（`backend/services/capabilities/`）：生产工具的唯一实现处——Chat Assistant、用户直接使用、Workflow 节点共用同一运行时；歌词走智谱 GLM/Kunbot 网关（`LLM_PROVIDER` 热插拔）、图像走 SiliconFlow Kolors/Kunbot MOSS/本地 ComfyUI Illustrious（`IMAGE_PROVIDER`）、视频走**本地 ComfyUI LTX-Video / SiliconFlow Wan2.2 / 阿里百炼 wan turbo+flash**（`VIDEO_PROVIDER`，含图生视频 I2V：画布连线/助手链尾续接自动识别）、检索 embedding 走 BGE-M3 / 百炼 `text-embedding-v4`（`EMBEDDING_PROVIDER` 备胎）；整个运行时还经 **MCP 协议**（`POST /mcp`）向外部 Agent 开放同一套工具；
 - **注入防护**（`backend/core/injection_guard.py`）：规则层先行、语义层过 embedding 前先过门控；RAG 上下文 Spotlighting 打标，间接注入触发工具冻结；
 - **任务队列**（`backend/services/job_service.py`）：持久化 jobs/documents，Worker 原子领取 + 租约恢复，失败重试；
 - **计费账本**（`backend/services/billing_service.py`）：usage_events 记账 + 价格版本 + reserve/settle/release 预占结算 + CHECK 非负约束 + 幂等充值。

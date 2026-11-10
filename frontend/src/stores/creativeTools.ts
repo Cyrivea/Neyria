@@ -19,6 +19,10 @@ export interface CreativeToolReference {
   type: 'image' | 'text' | 'file'
   name: string
   detail?: string
+  /** 图像块的真实上传凭证（服务端 assets 行 id）；非图像参考/本地备注没有它 */
+  assetId?: string
+  /** 可直接渲染的资产地址（/api/assets/xxx.png） */
+  url?: string
 }
 
 export interface CreativeToolInstance {

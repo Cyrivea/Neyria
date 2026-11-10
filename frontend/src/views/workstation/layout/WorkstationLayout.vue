@@ -160,7 +160,10 @@
                   @node-selected="handleWorkflowNodeSelected"
                   @notify="handleWorkflowNotify"
                 />
-                <CreativeToolPanel @close="handleCreativePanelClose" />
+                <CreativeToolPanel
+                  @close="handleCreativePanelClose"
+                  @open-archive="isArchiveOpen = true"
+                />
               </div>
             </div>
           </section>

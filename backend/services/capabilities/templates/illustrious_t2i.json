@@ -1,0 +1,57 @@
+{
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": { "ckpt_name": "Illustrious-XL-v1.1.safetensors" }
+  },
+  "10": {
+    "class_type": "LoraLoader",
+    "inputs": {
+      "model": ["1", 0],
+      "clip": ["1", 1],
+      "lora_name": "ILwatercolor.safetensors",
+      "strength_model": 0.8,
+      "strength_clip": 0.8
+    }
+  },
+  "2": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": ["10", 1],
+      "text": "masterpiece, best quality, amazing quality, very aesthetic, absurdres"
+    }
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": ["10", 1],
+      "text": "worst quality, low quality, lowres, bad anatomy, bad hands, extra digits, fewer digits, watermark, signature, username, text, jpeg artifacts"
+    }
+  },
+  "4": {
+    "class_type": "EmptyLatentImage",
+    "inputs": { "width": 1344, "height": 768, "batch_size": 1 }
+  },
+  "5": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": ["10", 0],
+      "positive": ["2", 0],
+      "negative": ["3", 0],
+      "latent_image": ["4", 0],
+      "seed": 1234567890,
+      "steps": 28,
+      "cfg": 5.5,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "denoise": 1
+    }
+  },
+  "6": {
+    "class_type": "VAEDecode",
+    "inputs": { "samples": ["5", 0], "vae": ["1", 2] }
+  },
+  "7": {
+    "class_type": "SaveImage",
+    "inputs": { "images": ["6", 0], "filename_prefix": "neyria/neyria_image" }
+  }
+}
